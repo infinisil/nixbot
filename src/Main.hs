@@ -3,6 +3,7 @@
 module Main where
 
 import           Control.Concurrent
+import           Control.Concurrent.STM
 import           Control.Exception          (SomeException, handle)
 import           Control.Monad
 import           Data.Aeson
@@ -84,13 +85,27 @@ opts auth = A.defaultConnectionOpts
 
 main :: IO ()
 main = do
-    args <- fmap L.words $ readFile "./auth"
-    let auth = A.amqplain (pack $ args !! 0) (pack $ args !! 1)
-    server auth
+  hSetBuffering stdout LineBuffering
+
+  cmdArgs <- getArgs
+  putStrLn $ "Command line arguments are " ++ show cmdArgs
+  args <- if L.length cmdArgs >= 2 then
+    return cmdArgs else
+    fmap L.words $ readFile "./auth"
+
+  let auth = A.amqplain (pack $ args !! 0) (pack $ args !! 1)
+  putStrLn $ "Using authentication: " ++ show args
+  server auth
+
+writeDone :: TMVar () -> IO ()
+writeDone var = atomically $ putTMVar var ()
 
 server :: A.SASLMechanism -> IO ()
 server auth = do
+
     conn <- A.openConnection'' (opts auth)
+    var <- newEmptyTMVarIO
+    A.addConnectionClosedHandler conn True $ writeDone var
     handle (onInterrupt conn) $ do
       putStrLn "Got connection"
       chan <- A.openChannel conn
@@ -122,14 +137,8 @@ server auth = do
       putStrLn $ "Started consumer with tag " ++ show tag
 
       putStrLn $ "terminating if enter is pressed..."
-      getLine
-
-
-
-      res <- A.waitForConfirms chan
-      putStrLn $ "waited for confirms with result: " ++ show res
+      atomically $ takeTMVar var
       A.closeConnection conn
-      putStrLn "connection closed"
 
 onInterrupt :: A.Connection -> SomeException -> IO ()
 onInterrupt conn e = do
