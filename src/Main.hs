@@ -32,14 +32,14 @@ data Output = Output
   , out_body   :: String
   } deriving (Show, Generic)
 
-data PR = PR
-  { pr_title  :: String
-  , pr_state  :: String
-  , pr_url    :: String
-  , pr_author :: String
+data Issue = Issue
+  { i_title  :: String
+  , i_state  :: String
+  , i_url    :: String
+  , i_author :: String
   } deriving (Show, Generic)
 
-instance FromJSON PR where
+instance FromJSON Issue where
   parseJSON (Object v) = do
     title <- v .: "title"
     state <- v .: "state"
@@ -48,7 +48,7 @@ instance FromJSON PR where
     case user of
       Object o -> do
         login <- o .: "login"
-        return $ PR title state url login
+        return $ Issue title state url login
       _ -> mzero
 
   parseJSON _ = mzero
@@ -174,14 +174,13 @@ prToInfo :: (String, Int) -> IO (Maybe String)
 prToInfo (p, n) = do
   putStrLn $ "Sending request to github for NixOS/" ++ p ++ "#" ++ show n
 
-  req <- fmap (H.setRequestHeader "user-agent" ["haskell"]) $ H.parseRequest $ "https://api.github.com/repos/NixOS/" ++ p ++ "/pulls/" ++ show n
-  response <- H.httpJSON req :: IO (H.Response PR)
+  req <- fmap (H.setRequestHeader "user-agent" ["haskell"]) $ H.parseRequest $ "https://api.github.com/repos/NixOS/" ++ p ++ "/issues/" ++ show n
+  response <- H.httpJSON req :: IO (H.Response Issue)
   let body = H.getResponseBody response
 
-  return $ Just $ pr_url body ++ " (by " ++ pr_author body ++ ", " ++ pr_state body ++ "): " ++ pr_title body
+  return $ Just $ i_url body ++ " (by " ++ i_author body ++ ", " ++ i_state body ++ "): " ++ i_title body
 
 
 reply :: Input -> IO [String]
 reply (Input { in_from = "#bottest", in_sender = user, in_body = "hello!" }) = return ["Hello, " ++ user]
 reply (Input { in_body = body }) = fmap catMaybes . mapM prToInfo $ parse body
-reply _           = return []
