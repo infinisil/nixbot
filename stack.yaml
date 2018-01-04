@@ -69,4 +69,4 @@ extra-deps:
 
 nix:
   enable: true
-  shell-file: default.nix
+  shell-file: shell.nix
