@@ -15,6 +15,8 @@ import qualified Data.Map                   as M
 import           Data.Maybe
 import           Data.Text
 import           GHC.Generics
+import           GitHub.Data.Name
+import qualified GitHub.Endpoints.Repos     as R
 import qualified Network.AMQP               as A
 import qualified Network.AMQP.Worker        as W
 import qualified Network.HTTP.Simple        as H
@@ -179,6 +181,25 @@ parse s = fmap (\xs -> (xs !! 1, read $ xs !! 2)) matches where
   matches :: [[String]]
   matches = s =~ ("([[:alpha:]]+)#([[:digit:]]+)" :: String)
 
+parseNixpkgs :: String -> [String]
+parseNixpkgs s = fmap (\xs -> xs !! 1) matches where
+  matches :: [[String]]
+  matches = s =~ ("nixpkgs/([^[:space:]]+)+" :: String)
+
+getNixpkgs :: String -> IO (Maybe String)
+getNixpkgs s = do
+  putStrLn $ "Trying to get contents for " ++ s
+  contents <- R.contentsFor "NixOS" "nixpkgs" (pack s) (Just "heads/master")
+  case contents of
+    Left error -> do
+      putStrLn $ show error
+      return Nothing
+    Right contents -> do
+      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/master/" ++ s
+
+nixpkgs :: String -> IO [String]
+nixpkgs s = fmap catMaybes . mapM getNixpkgs $ parseNixpkgs s
+
 prToInfo :: (String, Int) -> IO (Maybe String)
 prToInfo (p, n) = do
   putStrLn $ "Sending request to github for NixOS/" ++ p ++ "#" ++ show n
@@ -192,4 +213,4 @@ prToInfo (p, n) = do
 
 reply :: Input -> IO [String]
 reply (Input { in_from = "#bottest", in_sender = user, in_body = "hello!" }) = return ["Hello, " ++ user]
-reply (Input { in_body = body }) = fmap catMaybes . mapM prToInfo $ parse body
+reply (Input { in_body = body}) = liftM2 (++) (nixpkgs body) (fmap catMaybes . mapM prToInfo $ parse body)
