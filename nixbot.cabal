@@ -28,5 +28,4 @@ executable nixbot
                      , containers
                      , text
                      , amqp
-                     , amqp-worker
                      , base >= 4.7 && < 5
