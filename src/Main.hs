@@ -134,7 +134,8 @@ server auth = do
       A.confirmSelect chan False
       putStrLn "disabled nowait"
 
-      tag <- A.consumeMsgs chan myQueue A.Ack (onMessage chan)
+      statVar <- newTMVarIO initialState
+      tag <- A.consumeMsgs chan myQueue A.Ack (onMessage statVar chan)
       putStrLn $ "Started consumer with tag " ++ show tag
 
       putStrLn $ "terminating if enter is pressed..."
@@ -157,8 +158,8 @@ publishMessage chan msg = do
     putStrLn $ "Published Message" ++ maybe "" (\s -> ", got sequence number " ++ show s) intMb
     return intMb
 
-onMessage :: A.Channel -> (A.Message, A.Envelope) -> IO ()
-onMessage chan (m, e) = do
+onMessage :: TMVar State -> A.Channel -> (A.Message, A.Envelope) -> IO ()
+onMessage statVar chan (m, e) = do
   case decode $ A.msgBody m :: Maybe Input of
     Nothing -> do
       putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
@@ -166,7 +167,9 @@ onMessage chan (m, e) = do
     Just msg -> do
       putStrLn $ "Valid message " ++ show msg
       forkIO $ do
-        replyBodies <- reply msg
+        state <- atomically $ takeTMVar statVar
+        (newState, replyBodies) <- reply state msg
+        atomically $ putTMVar statVar newState
         sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b))
       A.ackEnv e
 
@@ -175,10 +178,8 @@ data State = State
            { commands :: M.Map String String }
            deriving Show
 
-parse :: String -> [(String, Int)]
-parse s = fmap (\xs -> (xs !! 1, read $ xs !! 2)) matches where
-  matches :: [[String]]
-  matches = s =~ ("([[:alpha:]]+)#([[:digit:]]+)" :: String)
+initialState = State { commands = M.empty }
+
 
 parseNixpkgs :: String -> [String]
 parseNixpkgs s = fmap (\xs -> xs !! 1) matches where
@@ -210,6 +211,47 @@ prToInfo (p, n) = do
   return $ Just $ i_url body ++ " (by " ++ i_author body ++ ", " ++ i_state body ++ "): " ++ i_title body
 
 
-reply :: Input -> IO [String]
-reply (Input { in_from = "#bottest", in_sender = user, in_body = "hello!" }) = return ["Hello, " ++ user]
-reply (Input { in_body = body}) = liftM2 (++) (nixpkgs body) (fmap catMaybes . mapM prToInfo $ parse body)
+type Plugin = State -> (String, String) -> IO (State, [String])
+
+prPlugin :: Plugin
+prPlugin state (nick, msg) = do
+  results <- fmap catMaybes . mapM prToInfo $ parsed
+  return (state, results)
+  where
+    matches :: [[String]]
+    matches = msg =~ ("([[:alpha:]]+)#([[:digit:]]+)" :: String)
+    parsed :: [(String, Int)]
+    parsed = fmap (\xs -> (xs !! 1, read $ xs !! 2)) matches
+
+helloPlugin :: Plugin
+helloPlugin state (nick, "hello!") = return (state, ["Hello, " ++ nick ++ "!"])
+helloPlugin state (nick, msg) = return (state, [])
+
+commandsPlugin :: Plugin
+commandsPlugin state (_, '!':command) = case L.words command of
+  [] -> return (state, [])
+  [ cmd ] -> case M.lookup cmd (commands state) of
+    Nothing -> return (state, ["Invalid command"])
+    Just result -> return (state, [result])
+  cmd:"=":rest ->
+    return
+      ( state { commands = M.insert cmd (L.unwords rest) (commands state) }
+      , ["Set command " ++ cmd ++ " to " ++ L.unwords rest] )
+  _ -> return (state, [])
+commandsPlugin state (_, _) = return (state, [])
+
+plugins :: String -> [Plugin]
+plugins "#nixos" = [ prPlugin ]
+plugins "#bottest" = [ prPlugin, helloPlugin, commandsPlugin ]
+plugins _ = []
+
+reply :: State -> Input -> IO (State, [String])
+reply state Input { in_from = channel, in_sender = nick, in_body = msg } = do
+  let chanPlugs = plugins channel
+  (finalState, replies) <- foldM (
+    \(state, replies) plugin -> do
+      (newState, additionalReplies) <- plugin state (nick, msg)
+      return (newState, replies ++ additionalReplies)
+    ) (state, []) chanPlugs
+    
+  return (finalState, replies)
