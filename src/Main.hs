@@ -1,47 +1,38 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
-import           Control.Concurrent (forkIO)
-import           Control.Concurrent.STM ( TMVar
-                                        , atomically
-                                        , putTMVar
-                                        , newEmptyTMVarIO
-                                        , newTMVarIO
-                                        , takeTMVar
-                                        )
-import           Control.Exception (SomeException, handle)
-import           Control.Monad (mzero, foldM)
-import           Data.Aeson ( FromJSON
-                            , ToJSON
-                            , parseJSON
-                            , Value(..)
-                            , toEncoding
-                            , (.:)
-                            , genericParseJSON
-                            , genericToEncoding
-                            , defaultOptions
-                            , encode
-                            , decode
-                            )
-import           Data.Aeson.Types (fieldLabelModifier)
-import           Data.ByteString.Lazy (fromStrict, toStrict)
-import qualified Data.ByteString.Lazy.Char8 as BS
-import           Data.List (stripPrefix, sortBy)
-import qualified Data.Map as M
+import           Control.Concurrent              (forkIO)
+import           Control.Concurrent.STM          (TMVar, atomically,
+                                                  newEmptyTMVarIO, newTMVarIO,
+                                                  putTMVar, takeTMVar)
+import           Control.Exception               (SomeException, handle)
+import           Control.Monad                   (foldM, mzero)
+import           Data.Aeson                      (FromJSON, ToJSON, Value (..),
+                                                  decode, defaultOptions,
+                                                  encode, genericParseJSON,
+                                                  genericToEncoding, parseJSON,
+                                                  toEncoding, (.:))
+import           Data.Aeson.Types                (fieldLabelModifier)
+import           Data.ByteString.Lazy            (fromStrict, toStrict)
+import qualified Data.ByteString.Lazy.Char8      as BS
+import           Data.List                       (sortBy, stripPrefix)
+import qualified Data.Map                        as M
 import           Data.Maybe
-import           Data.Ord (comparing)
-import           Data.Text (Text)
-import qualified Data.Text as Text
-import           GHC.Generics (Generic)
+import           Data.Ord                        (comparing)
+import           Data.Text                       (Text)
+import qualified Data.Text                       as Text
+import           GHC.Generics                    (Generic)
 import qualified GitHub.Endpoints.Repos.Contents as R
-import qualified Network.AMQP as A
-import qualified Network.HTTP.Simple as H
-import           System.Environment (getArgs)
-import           System.IO (hSetBuffering, BufferMode(..), stdout)
-import qualified System.IO.Strict as S
-import           Text.EditDistance (levenshteinDistance, defaultEditCosts)
-import           Text.Read (readMaybe)
-import           Text.Regex.TDFA ((=~))
+import qualified Network.AMQP                    as A
+import qualified Network.HTTP.Simple             as H
+import           System.Environment              (getArgs)
+import           System.IO                       (BufferMode (..),
+                                                  hSetBuffering, stdout)
+import qualified System.IO.Strict                as S
+import           Text.EditDistance               (defaultEditCosts,
+                                                  levenshteinDistance)
+import           Text.Read                       (readMaybe)
+import           Text.Regex.TDFA                 ((=~))
 
 data Input = Input
   { in_from   :: String
@@ -50,8 +41,8 @@ data Input = Input
   } deriving (Show, Generic)
 
 data Output = Output
-  { out_target :: String
-  , out_body   :: String
+  { out_target       :: String
+  , out_body         :: String
   , out_message_type :: String
   } deriving (Show, Generic)
 
@@ -70,17 +61,17 @@ instance FromJSON Issue where
     user <- v .: "user"
     case user of
       Object o -> Issue title state url <$> o.: "login"
-      _ -> mzero
+      _        -> mzero
 
   parseJSON _ = mzero
-  
+
 instance FromJSON Input where
   parseJSON = genericParseJSON defaultOptions
     { fieldLabelModifier = \s -> fromMaybe s (stripPrefix "in_" s) }
 instance ToJSON Output where
   toEncoding = genericToEncoding defaultOptions
     { fieldLabelModifier = \s -> fromMaybe s (stripPrefix "out_" s) }
-    
+
 exchange :: A.ExchangeOpts
 exchange = A.newExchange
   { A.exchangeName = "exchange-messages"
@@ -89,7 +80,7 @@ exchange = A.newExchange
   , A.exchangeDurable = True
   , A.exchangeAutoDelete = False
   }
-  
+
 opts :: A.SASLMechanism -> A.ConnectionOpts
 opts auth = A.defaultConnectionOpts
   { A.coVHost = "ircbot"
@@ -117,14 +108,14 @@ writeDone :: TMVar () -> IO ()
 writeDone var = atomically $ putTMVar var ()
 
 data Config = Config
-  { auth :: A.SASLMechanism
+  { auth      :: A.SASLMechanism
   , statePath :: String
   }
-  
+
 
 server :: Config -> IO ()
 server cfg = do
-  
+
     conn <- A.openConnection'' (opts (auth cfg))
     var <- newEmptyTMVarIO
     A.addConnectionClosedHandler conn True $ writeDone var
@@ -197,7 +188,7 @@ onMessage cfg statVar chan (m, e) = do
 
 data State = State
            { commands :: M.Map String String
-           , karma :: M.Map String Int
+           , karma    :: M.Map String Int
            }
            deriving (Show, Read)
 
@@ -218,7 +209,7 @@ getNixpkgs s = do
     Left error -> do
       print error
       return Nothing
-    Right contents -> 
+    Right contents ->
       return $ Just $ "https://github.com/NixOS/nixpkgs/tree/master/" ++ s
 
 nixpkgs :: String -> IO [String]
@@ -226,7 +217,7 @@ nixpkgs s = fmap catMaybes . mapM getNixpkgs $ parseNixpkgs s
 
 nixpkgsPlugin :: Plugin
 nixpkgsPlugin state (nick, msg) = do
-  putStrLn $ "Trying to get nixpkgs links for message " ++ msg 
+  putStrLn $ "Trying to get nixpkgs links for message " ++ msg
   links <- nixpkgs msg
   return (state, links)
 
@@ -273,7 +264,7 @@ lookupCommand :: M.Map String String -> String -> LookupResult
 lookupCommand map str = result
   where
     filtered =
-      filter ((3 >=) . snd) 
+      filter ((3 >=) . snd)
       . sortBy (comparing snd)
       . fmap (\s -> (s,
                      levenshteinDistance defaultEditCosts str s)
@@ -281,7 +272,7 @@ lookupCommand map str = result
       . filter (\s -> (s == str) || ((>=3) . length $ s))
       $ if length str <= 3 then (if M.member str map then [str] else []) else M.keys map
     result = case filtered of
-               [] -> Empty
+               []         -> Empty
                (str, 0):_ -> Exact . fromJust $ M.lookup str map
                (str, _):_ -> Guess str . fromJust $ M.lookup str map
 
@@ -289,9 +280,9 @@ karmaRegex :: String
 karmaRegex = "\\`[[:space:]]*([^[:space:]]+)[[:space:]]*\\+\\+\\'"
 
 karmaPlugin :: Plugin
-karmaPlugin state (nick, msg) = 
+karmaPlugin state (nick, msg) =
       case matches of
-        Nothing -> return (state, [])
+        Nothing   -> return (state, [])
         Just user -> return $ adjust user (user == nick)
       where
         matches = listToMaybe $ fmap (!!1) (msg =~ karmaRegex :: [[String]])
