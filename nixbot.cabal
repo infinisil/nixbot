@@ -7,7 +7,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Author name here
 maintainer:          example@example.com
-copyright:           2017 Author name here
+copyright:           2018 Author name here
 category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
@@ -17,15 +17,16 @@ executable nixbot
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
-  build-depends:       aeson
-                     , stm
-                     , bytestring
-                     , http-conduit
-                     , github
-                     , parsers
-                     , parsec
-                     , regex-tdfa
-                     , containers
-                     , text
+  build-depends:       base >= 4.7 && < 5
+                     , aeson
                      , amqp
-                     , base >= 4.7 && < 5
+                     , text
+                     , stm
+                     , containers
+                     , strict
+                     , github
+                     , http-conduit
+                     , regex-tdfa
+                     , bytestring
+                     , mtl
+                     , edit-distance
