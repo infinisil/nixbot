@@ -1,31 +1,47 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
-import           Control.Concurrent
-import           Control.Concurrent.STM
-import           Control.Exception          (SomeException, handle)
-import           Control.Monad
-import           Data.Aeson
-import           Data.Aeson.Types           (fieldLabelModifier)
-import           Data.ByteString.Lazy       (fromStrict, toStrict)
+import           Control.Concurrent (forkIO)
+import           Control.Concurrent.STM ( TMVar
+                                        , atomically
+                                        , putTMVar
+                                        , newEmptyTMVarIO
+                                        , newTMVarIO
+                                        , takeTMVar
+                                        )
+import           Control.Exception (SomeException, handle)
+import           Control.Monad (mzero, foldM)
+import           Data.Aeson ( FromJSON
+                            , ToJSON
+                            , parseJSON
+                            , Value(..)
+                            , toEncoding
+                            , (.:)
+                            , genericParseJSON
+                            , genericToEncoding
+                            , defaultOptions
+                            , encode
+                            , decode
+                            )
+import           Data.Aeson.Types (fieldLabelModifier)
+import           Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.List
-import Text.Read (readMaybe)
-import qualified Data.Map                   as M
+import           Data.List (stripPrefix, sortBy)
+import qualified Data.Map as M
 import           Data.Maybe
+import           Data.Ord (comparing)
+import           Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Text (Text)
-import           GHC.Generics
-import           GitHub.Data.Name
-import qualified GitHub.Endpoints.Repos.Contents     as R
-import qualified Network.AMQP               as A
-import qualified Network.HTTP.Simple        as H
-import           System.Environment
-import           System.IO
+import           GHC.Generics (Generic)
+import qualified GitHub.Endpoints.Repos.Contents as R
+import qualified Network.AMQP as A
+import qualified Network.HTTP.Simple as H
+import           System.Environment (getArgs)
+import           System.IO (hSetBuffering, BufferMode(..), stdout)
 import qualified System.IO.Strict as S
-import           Text.Regex.TDFA
-import Text.EditDistance
-import Data.Ord (comparing)
+import           Text.EditDistance (levenshteinDistance, defaultEditCosts)
+import           Text.Read (readMaybe)
+import           Text.Regex.TDFA ((=~))
 
 data Input = Input
   { in_from   :: String
@@ -288,8 +304,6 @@ karmaPlugin state (nick, msg) =
             message = user ++ "'s karma got " ++
               (if decrease then "decreased" else "increased")
               ++ " to " ++ show newKarma
-
-
 
 commandsPlugin :: Plugin
 commandsPlugin state (nick, ',':command) = case words command of
