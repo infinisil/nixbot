@@ -17626,6 +17626,24 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            description = "Parser for TOML files";
            license = stdenv.lib.licenses.bsd3;
          }) {};
+      "htoml-megaparsec" = callPackage
+        ({ mkDerivation, base, composition-prelude, containers, deepseq
+         , megaparsec, mtl, stdenv, text, time, unordered-containers, vector
+         }:
+         mkDerivation {
+           pname = "htoml-megaparsec";
+           version = "1.1.0.4";
+           sha256 = "60bd5c855dd73b2e7c0555b64d2634f91a53a25b81ec9cdac5cacc049cabce0d";
+           libraryHaskellDepends = [
+             base composition-prelude containers deepseq megaparsec mtl text
+             time unordered-containers vector
+           ];
+           doHaddock = false;
+           doCheck = false;
+           homepage = "https://hub.darcs.net/vmchale/htoml-megaparsec";
+           description = "Parser for TOML files";
+           license = stdenv.lib.licenses.bsd3;
+         }) {};
       "http-api-data" = callPackage
         ({ mkDerivation, attoparsec, attoparsec-iso8601, base, bytestring
          , Cabal, cabal-doctest, containers, hashable, http-types, stdenv
@@ -24745,8 +24763,9 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
          }) {};
       "nixbot" = callPackage
         ({ mkDerivation, aeson, amqp, base, bytestring, containers
-         , directory, edit-distance, filepath, github, http-conduit
-         , monad-logger, mtl, regex-tdfa, stdenv, stm, strict, text
+         , directory, edit-distance, filepath, github, htoml-megaparsec
+         , http-conduit, megaparsec, monad-logger, mtl, optparse-applicative
+         , regex-tdfa, stdenv, stm, strict, text, unordered-containers
          }:
          mkDerivation {
            pname = "nixbot";
@@ -24756,8 +24775,9 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            isExecutable = true;
            executableHaskellDepends = [
              aeson amqp base bytestring containers directory edit-distance
-             filepath github http-conduit monad-logger mtl regex-tdfa stm strict
-             text
+             filepath github htoml-megaparsec http-conduit megaparsec
+             monad-logger mtl optparse-applicative regex-tdfa stm strict text
+             unordered-containers
            ];
            doHaddock = false;
            doCheck = false;

@@ -1,14 +1,14 @@
-{-# LANGUAGE DeriveDataTypeable    #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE TemplateHaskell       #-}
 
 
 module Main where
+
+import           Config
 
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
@@ -51,8 +51,8 @@ import qualified System.IO.Strict                as S
 import           Text.EditDistance               (defaultEditCosts,
                                                   levenshteinDistance)
 import           Text.Read                       (readMaybe)
-import           Text.Read                       (readMaybe)
 import           Text.Regex.TDFA                 ((=~))
+
 
 data Input = Input
   { in_from   :: String
@@ -101,8 +101,8 @@ exchange = A.newExchange
   , A.exchangeAutoDelete = False
   }
 
-opts :: A.SASLMechanism -> A.ConnectionOpts
-opts auth = A.defaultConnectionOpts
+opts' :: A.SASLMechanism -> A.ConnectionOpts
+opts' auth = A.defaultConnectionOpts
   { A.coVHost = "ircbot"
   , A.coTLSSettings = Just A.TLSTrusted
   , A.coServers = [("events.nix.gsc.io", 5671)]
@@ -111,32 +111,18 @@ opts auth = A.defaultConnectionOpts
 
 main = do
   hSetBuffering stdout LineBuffering
-  cmdArgs <- getArgs
-  let sp = cmdArgs !! 0
-  let rest = tail cmdArgs
-  putStrLn $ "Command line arguments are " ++ show cmdArgs
-  args <- if length rest >= 2 then
-    return rest else
-    fmap words $ readFile "./auth"
 
-  let config = Config { auth = A.amqplain (Text.pack $ args !! 0) (Text.pack $ args !! 1)
-                      , statePath = sp }
-  putStrLn $ "Using statePath: " ++ statePath config
+  config <- getConfig
+
   server config
 
 writeDone :: TMVar () -> IO ()
 writeDone var = atomically $ putTMVar var ()
 
-data Config = Config
-  { auth      :: A.SASLMechanism
-  , statePath :: String
-  }
-
-
 server :: Config -> IO ()
 server cfg = do
 
-    conn <- A.openConnection'' (opts (auth cfg))
+    conn <- A.openConnection'' (opts' (auth cfg))
     var <- newEmptyTMVarIO
     A.addConnectionClosedHandler conn True $ writeDone var
     handle (onInterrupt conn) $ do
@@ -353,7 +339,7 @@ data Backend s m = Backend { load :: m (Maybe s), store :: s -> m () }
 fileBackend :: (Read s, MonadLogger m, Show s, MonadIO m, MonadReader Config m) => FilePath -> Backend s m
 fileBackend path = Backend
   { load = do
-      statePath <- reader statePath
+      statePath <- reader stateDir
       let fullPath = statePath </> path
 
       liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
@@ -364,7 +350,7 @@ fileBackend path = Backend
           contents <- liftIO $ S.readFile fullPath
           return $ readMaybe contents
   , store = \s -> do
-      statePath <- reader statePath
+      statePath <- reader stateDir
       let fullPath = statePath </> path
       liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
       liftIO . writeFile fullPath $ show s

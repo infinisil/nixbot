@@ -17,6 +17,7 @@ executable nixbot
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
+  other-modules:     Config
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
@@ -33,3 +34,7 @@ executable nixbot
                      , monad-logger
                      , directory
                      , filepath
+                     , optparse-applicative
+                     , htoml-megaparsec
+                     , unordered-containers
+                     , megaparsec
