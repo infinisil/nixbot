@@ -42,6 +42,7 @@ packages:
 # extra-deps: []
 extra-deps:
 - htoml-megaparsec-1.1.0.4
+- monad-stm-0.1.0.2
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

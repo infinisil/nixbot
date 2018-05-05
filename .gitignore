@@ -4,3 +4,6 @@ config.toml
 result
 dist
 state
+**/#*#
+**/.#*
+stack2nix.nix
