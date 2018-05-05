@@ -1,9 +1,11 @@
 TAGS
 .stack-work
 config.toml
+release.toml
 result
 dist
 state
 **/#*#
 **/.#*
 stack2nix.nix
+

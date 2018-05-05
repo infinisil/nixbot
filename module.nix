@@ -15,7 +15,7 @@
     after = [ "network.target" ];
     serviceConfig = {
       User = "nixbot";
-      ExecStart = "${(import ./stack2nix.nix { inherit pkgs; }).nixbot}/bin/nixbot --config ${builtins.readFile ./config.toml}";
+      ExecStart = "${(import ./stack2nix.nix { inherit pkgs; }).nixbot}/bin/nixbot --config ${./release.toml}";
       Restart = "on-failure";
       RestartSec = 1;
     };
