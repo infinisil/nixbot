@@ -24745,8 +24745,8 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
          }) {};
       "nixbot" = callPackage
         ({ mkDerivation, aeson, amqp, base, bytestring, containers
-         , edit-distance, github, http-conduit, mtl, regex-tdfa, stdenv, stm
-         , strict, text
+         , directory, edit-distance, filepath, github, http-conduit
+         , monad-logger, mtl, regex-tdfa, stdenv, stm, strict, text
          }:
          mkDerivation {
            pname = "nixbot";
@@ -24755,8 +24755,9 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            isLibrary = false;
            isExecutable = true;
            executableHaskellDepends = [
-             aeson amqp base bytestring containers edit-distance github
-             http-conduit mtl regex-tdfa stm strict text
+             aeson amqp base bytestring containers directory edit-distance
+             filepath github http-conduit monad-logger mtl regex-tdfa stm strict
+             text
            ];
            doHaddock = false;
            doCheck = false;

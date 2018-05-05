@@ -1,12 +1,27 @@
-{-# LANGUAGE DeriveGeneric     #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveDataTypeable    #-}
+{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE NamedFieldPuns        #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE TemplateHaskell       #-}
+
+
 module Main where
+
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
                                                   newEmptyTMVarIO, newTMVarIO,
                                                   putTMVar, takeTMVar)
 import           Control.Exception               (SomeException, handle)
 import           Control.Monad                   (foldM, mzero)
+import           Control.Monad.Error.Class
+import           Control.Monad.IO.Class          (MonadIO, liftIO)
+import           Control.Monad.Logger
+import           Control.Monad.Reader
+import qualified Control.Monad.State             as ST
+import           Control.Monad.State.Class
 import           Data.Aeson                      (FromJSON, ToJSON, Value (..),
                                                   decode, defaultOptions,
                                                   encode, genericParseJSON,
@@ -15,6 +30,8 @@ import           Data.Aeson                      (FromJSON, ToJSON, Value (..),
 import           Data.Aeson.Types                (fieldLabelModifier)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import qualified Data.ByteString.Lazy.Char8      as BS
+import           Data.Data
+import           Data.Functor.Identity
 import           Data.List                       (sortBy, stripPrefix)
 import qualified Data.Map                        as M
 import           Data.Maybe
@@ -25,12 +42,15 @@ import           GHC.Generics                    (Generic)
 import qualified GitHub.Endpoints.Repos.Contents as R
 import qualified Network.AMQP                    as A
 import qualified Network.HTTP.Simple             as H
+import           System.Directory
 import           System.Environment              (getArgs)
+import           System.FilePath
 import           System.IO                       (BufferMode (..),
                                                   hSetBuffering, stdout)
 import qualified System.IO.Strict                as S
 import           Text.EditDistance               (defaultEditCosts,
                                                   levenshteinDistance)
+import           Text.Read                       (readMaybe)
 import           Text.Read                       (readMaybe)
 import           Text.Regex.TDFA                 ((=~))
 
@@ -178,10 +198,8 @@ onMessage cfg statVar chan (m, e) = do
     Just msg -> do
       putStrLn $ "Valid message " ++ show msg
       forkIO $ do
-        state <- fmap (fromMaybe initialState . readMaybe) . S.readFile $ (statePath cfg)
-        (newState, replyBodies) <- reply state msg
+        replyBodies <- reply cfg msg
         putStrLn $ "got replies: " ++ concatMap show replyBodies
-        writeFile (statePath cfg) (show newState)
         sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b "privmsg"))
       A.ackEnv e
 
@@ -204,28 +222,27 @@ parseNixpkgs s = fmap (\xs -> xs !! 1) matches where
 getNixpkgs :: String -> IO (Maybe String)
 getNixpkgs s = do
   putStrLn $ "Trying to get contents for " ++ s
-  contents <- R.contentsFor "NixOS" "nixpkgs" (Text.pack s) (Just "heads/master")
+  contents <- R.contentsFor "nixOS" "nixpkgs" (Text.pack s) (Just "heads/master")
   case contents of
     Left error -> do
       print error
       return Nothing
     Right contents ->
-      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/master/" ++ s
+      return $ Just $ "https://github.com/nixOS/nixpkgs/tree/master/" ++ s
 
 nixpkgs :: String -> IO [String]
 nixpkgs s = fmap catMaybes . mapM getNixpkgs $ parseNixpkgs s
 
-nixpkgsPlugin :: Plugin
-nixpkgsPlugin state (nick, msg) = do
-  putStrLn $ "Trying to get nixpkgs links for message " ++ msg
-  links <- nixpkgs msg
-  return (state, links)
+nixpkgsPlugin :: MonadIO m => MyPlugin () m
+nixpkgsPlugin = MyPlugin () trans "nixpkgs"
+  where
+    trans (nick, msg) = liftIO $ nixpkgs msg
 
 prToInfo :: (String, Int) -> IO (Maybe String)
 prToInfo (p, n) = do
-  putStrLn $ "Sending request to github for NixOS/" ++ p ++ "#" ++ show n
+  putStrLn $ "Sending request to github for nixOS/" ++ p ++ "#" ++ show n
 
-  req <- fmap (H.setRequestHeader "user-agent" ["haskell"]) $ H.parseRequest $ "https://api.github.com/repos/NixOS/" ++ p ++ "/issues/" ++ show n
+  req <- fmap (H.setRequestHeader "user-agent" ["haskell"]) $ H.parseRequest $ "https://api.github.com/repos/nixOS/" ++ p ++ "/issues/" ++ show n
   response <- H.httpJSON req :: IO (H.Response Issue)
   let body = H.getResponseBody response
 
@@ -233,6 +250,7 @@ prToInfo (p, n) = do
 
 
 type Plugin = State -> (String, String) -> IO (State, [String])
+type NewPlugin = (String, String) -> State
 
 parsePRs :: String -> String -> [(String, Int)]
 parsePRs def str = parsed
@@ -242,14 +260,16 @@ parsePRs def str = parsed
     parsed :: [(String, Int)]
     parsed = map (\(a, b) -> (if null a then def else a, b)) . map (\xs -> (xs !! 1, read $ xs !! 2)) $ matches
 
-prPlugin :: Plugin
-prPlugin state (nick, msg) = do
-  results <- fmap catMaybes . mapM prToInfo $ parsePRs "nixpkgs" msg
-  return (state, results)
+prPlugin :: MonadIO m => MyPlugin () m
+prPlugin = MyPlugin () trans "pr"
+  where
+    trans (nick, msg) = liftIO $ fmap catMaybes . mapM prToInfo $ parsePRs "nixpkgs" msg
 
-helloPlugin :: Plugin
-helloPlugin state (nick, "hello!") = return (state, ["Hello, " ++ nick ++ "!"])
-helloPlugin state (nick, msg) = return (state, [])
+helloPlugin :: Monad m => MyPlugin () m
+helloPlugin = MyPlugin () trans "hello"
+  where
+    trans (nick, "hello!") = return [ "Hello, " ++ nick ++ "!" ]
+    trans _                = return []
 
 data LookupResult = Empty | Exact String | Guess String String
 
@@ -260,8 +280,8 @@ replyLookup _ (Just arg) (Exact str) = [arg ++ ": " ++ str]
 replyLookup nick Nothing (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", str]
 replyLookup nick (Just arg) (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", arg ++ ": " ++ str]
 
-lookupCommand :: M.Map String String -> String -> LookupResult
-lookupCommand map str = result
+lookupCommand :: String -> M.Map String String -> LookupResult
+lookupCommand str map = result
   where
     filtered =
       filter ((3 >=) . snd)
@@ -279,50 +299,127 @@ lookupCommand map str = result
 karmaRegex :: String
 karmaRegex = "\\`[[:space:]]*([^[:space:]]+)[[:space:]]*\\+\\+\\'"
 
-karmaPlugin :: Plugin
-karmaPlugin state (nick, msg) =
+karmaPlugin :: Monad m => MyPlugin (M.Map String Int) m
+karmaPlugin = MyPlugin M.empty trans "karma"
+  where
+    trans (nick, msg) =
       case matches of
-        Nothing   -> return (state, [])
-        Just user -> return $ adjust user (user == nick)
+        Nothing   -> return []
+        Just user -> do
+          let decrease = user == nick
+          let mod = if decrease then (\x -> x - 1) else (\x -> x + 1)
+          oldMap <- get
+          let newKarma = mod . M.findWithDefault 0 user $ oldMap
+          modify (M.insert user newKarma)
+          return [ user ++ "'s karma got " ++
+            (if decrease then "decreased" else "increased")
+            ++ " to " ++ show newKarma ]
       where
         matches = listToMaybe $ fmap (!!1) (msg =~ karmaRegex :: [[String]])
-        adjust :: String -> Bool -> (State, [String])
-        adjust user decrease = (state { karma = newKarmaMap }, [message])
-          where
-            mod = if decrease then (\x -> x - 1) else (\x -> x + 1)
-            newKarma = mod $ M.findWithDefault 0 user (karma state)
-            newKarmaMap = M.insert user newKarma (karma state)
-            message = user ++ "'s karma got " ++
-              (if decrease then "decreased" else "increased")
-              ++ " to " ++ show newKarma
 
-commandsPlugin :: Plugin
-commandsPlugin state (nick, ',':command) = case words command of
-  [] -> return (state, ["All commands: " ++ unwords (M.keys (commands state))])
-  [ cmd ] -> return (state, replyLookup nick Nothing (lookupCommand (commands state) cmd))
-  cmd:"=":rest -> case length rest of
-    0 -> return
-      ( state { commands = M.delete cmd (commands state) }
-      , [cmd ++ " undefined"] )
-    _ -> return
-      ( state { commands = M.insert cmd (unwords rest) (commands state) }
-      , [cmd ++ " defined"] )
-  cmd:args -> return (state, replyLookup nick (Just (unwords args)) (lookupCommand (commands state) cmd))
-commandsPlugin state (_, _) = return (state, [])
+commandsPlugin :: Monad m => MyPlugin (M.Map String String) m
+commandsPlugin = MyPlugin M.empty trans "commands"
+  where
+    trans (nick, ',':command) = case words command of
+      [] -> do
+        keys <- gets M.keys
+        return ["All commands: " ++ unwords keys]
+      [ cmd ] -> do
+        result <- gets (lookupCommand cmd)
+        return $ replyLookup nick Nothing result
+      cmd:"=":rest -> case length rest of
+          0 -> do
+            modify (M.delete cmd)
+            return [ cmd ++ " undefined" ]
+          _ -> do
+            modify (M.insert cmd (unwords rest))
+            return [ cmd ++ " defined" ]
+      cmd:args -> do
+        result <- gets (lookupCommand cmd)
+        return $ replyLookup nick (Just (unwords args)) result
+    trans (_, _) = return []
 
-plugins :: String -> [Plugin]
-plugins "#nixos" = [ karmaPlugin, prPlugin, commandsPlugin ]
-plugins "#bottest" = [ karmaPlugin, prPlugin, helloPlugin, commandsPlugin, nixpkgsPlugin ]
-plugins "#nixos-borg" = [ karmaPlugin, prPlugin, helloPlugin, commandsPlugin ]
-plugins _ = []
 
-reply :: State -> Input -> IO (State, [String])
-reply state Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = plugins channel
-  (finalState, replies) <- foldM (
-    \(state, replies) plugin -> do
-      (newState, additionalReplies) <- plugin state (nick, msg)
-      return (newState, replies ++ additionalReplies)
-    ) (state, []) chanPlugs
+-- Each domain has its own state, which is not shared with other domains
 
-  return (finalState, take 3 replies)
+type PluginInput = (String, String)
+data MyPlugin s m = MyPlugin { initState :: s
+                             , transf :: PluginInput -> ST.StateT s m [String]
+                             , name :: String
+                             }
+
+data Backend s m = Backend { load :: m (Maybe s), store :: s -> m () }
+
+fileBackend :: (Read s, MonadLogger m, Show s, MonadIO m, MonadReader Config m) => FilePath -> Backend s m
+fileBackend path = Backend
+  { load = do
+      statePath <- reader statePath
+      let fullPath = statePath </> path
+
+      liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
+      fileExists <- liftIO $ doesFileExist fullPath
+      if not fileExists
+        then return Nothing
+        else do
+          contents <- liftIO $ S.readFile fullPath
+          return $ readMaybe contents
+  , store = \s -> do
+      statePath <- reader statePath
+      let fullPath = statePath </> path
+      liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
+      liftIO . writeFile fullPath $ show s
+  }
+
+examplePlugin :: Monad m => MyPlugin Int m
+examplePlugin = MyPlugin 0 trans "example"
+  where
+    trans input = do
+      value <- get
+      put $ value + 1
+      return [ "increased value by 1" ]
+
+runPlugin :: MonadLogger m => MyPlugin s m -> Backend s m -> PluginInput -> m [String]
+runPlugin (MyPlugin init trans name) (Backend load store) input = do
+  state <- fromMaybe init <$> load
+  (results, newState) <- ST.runStateT (trans input) state
+  store newState
+  return results
+
+type RunnablePlugin m = PluginInput -> m [String]
+
+onDomain :: (MonadLogger m, MonadIO m, MonadReader Config m, Read s, Show s) => MyPlugin s m -> String -> RunnablePlugin m
+onDomain plugin domain = runPlugin plugin (fileBackend (domain ++ "/" ++ (name plugin)))
+
+newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ PluginInput -> m [String] ]
+newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
+                      , prPlugin `onDomain` nixOS
+                      , commandsPlugin `onDomain` nixOS
+                      ]
+newPlugins "#bottest" = [ karmaPlugin `onDomain` nixOS
+                        , prPlugin `onDomain` nixOS
+                        , helloPlugin `onDomain` nixOS
+                        , commandsPlugin `onDomain` nixOS
+                        , nixpkgsPlugin `onDomain` nixOS
+                        ]
+newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
+                           , prPlugin `onDomain` nixOS
+                           , helloPlugin `onDomain` nixOS
+                           , commandsPlugin `onDomain` nixOS
+                           ]
+newPlugins ('#':_) = []
+newPlugins nick = [ commandsPlugin `onDomain` nick
+                  , helloPlugin `onDomain` nick
+                  , karmaPlugin `onDomain` nick
+                  ]
+
+-- Domains
+nixOS = "nixOS"
+testing = "Testing"
+global = "Global"
+
+
+reply :: Config -> Input -> IO [String]
+reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
+  let chanPlugs = newPlugins channel
+  replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
+  return $ take 3 $ concat replies

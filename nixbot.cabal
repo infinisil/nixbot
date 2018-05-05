@@ -30,3 +30,6 @@ executable nixbot
                      , bytestring
                      , mtl
                      , edit-distance
+                     , monad-logger
+                     , directory
+                     , filepath
