@@ -18,10 +18,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import           Data.Map                   (Map)
 import qualified Data.Map                   as M
 
-data Def = Def String String
-         deriving Show
-
-data Instruction = Definition Def
+data Instruction = Definition String String
                  | Evaluation String
                  deriving Show
 
@@ -31,20 +28,20 @@ type Parser = P.Parsec () String
 
 parser :: Parser Instruction
 parser =
-  P.try (Definition <$> defParser) <|> Evaluation <$> (C.space *> P.takeRest)
+  P.try defParser <|> Evaluation <$> (C.space *> P.takeRest)
     where
       literal :: Parser String
       literal = (:) <$> (C.letterChar <|> C.char '_') <*> P.many C.alphaNumChar
 
-      defParser :: Parser Def
+      defParser :: Parser Instruction
       defParser = do
         C.space
         lit <- literal
         C.space
-        C.string "="
+        C.char '='
         C.space
         value <- P.takeRest
-        return $ Def lit value
+        return $ Definition lit value
 
 nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
 nixInstantiateOptions = concat [ ["--option", var, val] | (var, val) <-
@@ -78,7 +75,7 @@ nixFile state lit = "let\n"
     ++ "in " ++ lit
 
 handle :: (MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
-handle (Definition (Def lit val)) = do
+handle (Definition lit val) = do
   potNewState <- gets $ M.insert lit val
   let contents = nixFile potNewState "null"
   liftIO . putStrLn $ "Trying to validate new definition for " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
