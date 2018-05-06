@@ -26,6 +26,7 @@ executable nixbot
                        Plugins.Pr
                        Plugins.NixRepl
                        NixEval
+                       Utils.FileLiteral
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
@@ -50,3 +51,4 @@ executable nixbot
                      , monad-stm
                      , process
                      , data-default
+                     , template-haskell

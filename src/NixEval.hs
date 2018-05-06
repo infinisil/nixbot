@@ -3,10 +3,12 @@ module NixEval ( nixInstantiate
                , NixOptions(..)
                , EvalMode(..)
                , publicOptions
+               , def
                ) where
 
 import           Control.Monad.IO.Class
 import           Data.Default
+import           Data.Map               (Map)
 import qualified Data.Map               as M
 import           Data.Maybe
 import           System.Exit
@@ -85,8 +87,9 @@ modeToArgs Json   = ["--eval", "--strict", "--json"]
 
 nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
 
-nixInstantiate :: MonadIO m => String -> Maybe String -> EvalMode -> NixOptions -> m (Either String String)
-nixInstantiate contents attr mode opts = do
+nixInstantiate :: MonadIO m => String -> Maybe String -> Map String String -> [String] -> EvalMode -> NixOptions -> m (Either String String)
+nixInstantiate contents attr nixArgs nixPath mode opts = do
+  liftIO . putStrLn $ "Calling nix-instantiate with options:\n" ++ concatMap (\o -> "\t" ++ o ++ "\n") options ++ "\nwith file:\n" ++ contents ++ "\n"
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath options contents
   case exitCode of
     ExitSuccess      -> return . Right $ outputTransform stdout
@@ -95,6 +98,8 @@ nixInstantiate contents attr mode opts = do
     options = modeToArgs mode
       ++ [ "-" ]
       ++ maybe [] (\a -> [ "-A", a ]) attr
+      ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs nixArgs)
+      ++ concatMap (\p -> [ "-I", p ]) nixPath
       ++ optionsToArgs opts
 
 outputTransform :: String -> String

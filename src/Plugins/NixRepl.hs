@@ -71,7 +71,7 @@ tryMod mod = do
   newState <- gets mod
   let contents = nixFile newState "null"
   liftIO . putStrLn $ "Trying to modify nix state to:\n" ++ contents ++ "\n"
-  result <- nixInstantiate contents Nothing Parse publicOptions
+  result <- nixInstantiate contents Nothing M.empty [] Parse publicOptions
   case result of
     Right _ -> do
       put newState
@@ -84,7 +84,7 @@ handle (Evaluation lit) = do
   state <- get
   let contents = nixFile state ("_show (" ++ lit ++ ")")
   liftIO . putStrLn $ "Trying to evaluate " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
-  result <- nixInstantiate contents Nothing Lazy publicOptions
+  result <- nixInstantiate contents Nothing M.empty [] Lazy publicOptions
   case result of
     Right value -> return $ Just value
     Left error  -> return $ Just error
