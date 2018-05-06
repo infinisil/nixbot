@@ -1,13 +1,13 @@
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Plugins.Karma (karmaPlugin) where
 
-import Plugins
+import           Plugins
 
-import Data.Map (Map)
-import qualified Data.Map as M
-import Control.Monad.State
-import Data.Maybe (listToMaybe)
-import           Text.Regex.TDFA                 ((=~))
+import           Control.Monad.State
+import           Data.Map            (Map)
+import qualified Data.Map            as M
+import           Data.Maybe          (listToMaybe)
+import           Text.Regex.TDFA     ((=~))
 
 karmaRegex :: String
 karmaRegex = "\\`[[:space:]]*([^[:space:]]+)[[:space:]]*\\+\\+\\'"

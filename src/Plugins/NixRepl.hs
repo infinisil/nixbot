@@ -1,21 +1,22 @@
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Plugins.NixRepl (nixreplPlugin) where
 
-import Plugins
-import Data.Maybe (maybeToList, listToMaybe, fromMaybe)
-import System.Process (readProcessWithExitCode)
-import System.Exit (ExitCode(..))
-import Control.Monad.Logger
-import Control.Monad.State
-import Control.Monad.State.Class
-import Control.Applicative ((<|>))
-import qualified Text.Megaparsec as P
-import qualified Text.Megaparsec.Char as C
+import           Control.Applicative        ((<|>))
+import           Control.Monad.Logger
+import           Control.Monad.State
+import           Control.Monad.State.Class
+import           Data.List
+import           Data.Maybe                 (fromMaybe, listToMaybe,
+                                             maybeToList)
+import           Plugins
+import           System.Exit                (ExitCode (..))
+import           System.Process             (readProcessWithExitCode)
+import qualified Text.Megaparsec            as P
+import qualified Text.Megaparsec.Char       as C
 import qualified Text.Megaparsec.Char.Lexer as L
-import Data.List
 
-import qualified Data.Map as M
-import Data.Map (Map)
+import           Data.Map                   (Map)
+import qualified Data.Map                   as M
 
 data Def = Def String String
          deriving Show
@@ -29,7 +30,7 @@ type NixState = Map String String
 type Parser = P.Parsec () String
 
 parser :: Parser Instruction
-parser = 
+parser =
   P.try (Definition <$> defParser) <|> Evaluation <$> (C.space *> P.takeRest)
     where
       literal :: Parser String
@@ -67,9 +68,9 @@ nixInstantiate eval contents = do
   let options = (if eval then "--eval" else "--parse") : nixInstantiateOptions
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath options contents
   case exitCode of
-    ExitSuccess -> return . Right $ outputTransform stdout
+    ExitSuccess      -> return . Right $ outputTransform stdout
     ExitFailure code -> return . Left $ outputTransform stderr
-  
+
 
 nixFile :: NixState -> String -> String
 nixFile state lit = "let\n"
@@ -94,7 +95,7 @@ handle (Evaluation lit) = do
   result <- nixInstantiate True contents
   case result of
     Right value -> return $ Just value
-    Left error -> return $ Just error
+    Left error  -> return $ Just error
 
 defaults :: NixState
 defaults = M.fromList
@@ -108,5 +109,5 @@ nixreplPlugin = MyPlugin defaults trans "nixrepl"
   where
     trans (_, '>':nixString) = case P.runParser parser "(input)" nixString of
       Right instruction -> maybeToList <$> handle instruction
-      Left _ -> return []
+      Left _            -> return []
     trans _ = return []

@@ -1,16 +1,16 @@
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Plugins.Commands (commandsPlugin) where
 
-import Plugins
-import Data.Map (Map)
-import           Data.List                       (sortBy)
-import           Data.Ord                        (comparing)
-import Data.Maybe (fromJust)
-import           Text.EditDistance               (defaultEditCosts,
-                                                  levenshteinDistance)
-import qualified Data.Map as M
+import           Data.List           (sortBy)
+import           Data.Map            (Map)
+import qualified Data.Map            as M
+import           Data.Maybe          (fromJust)
+import           Data.Ord            (comparing)
+import           Plugins
+import           Text.EditDistance   (defaultEditCosts, levenshteinDistance)
 
-import Control.Monad.State
+
+import           Control.Monad.State
 
 data LookupResult = Empty | Exact String | Guess String String
 

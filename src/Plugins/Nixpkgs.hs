@@ -11,7 +11,7 @@ import qualified Data.Text                       as Text
 import qualified GitHub.Endpoints.Repos.Contents as R
 import           Text.Regex.TDFA                 ((=~))
 
-import Plugins
+import           Plugins
 
 
 parseNixpkgs :: String -> [String]

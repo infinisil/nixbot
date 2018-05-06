@@ -1,21 +1,20 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE DeriveGeneric         #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Plugins.Pr (prPlugin) where
 
-import Plugins
+import           Plugins
 
-import qualified Network.HTTP.Simple             as H
-import           GHC.Generics                    (Generic)
-import           Control.Monad.IO.Class          (MonadIO, liftIO)
-import           Data.Maybe (catMaybes)
-import           Text.Regex.TDFA                 ((=~))
-import           Data.Aeson                      (FromJSON, Value(..),
-                                                  decode, defaultOptions,
-                                                  encode, genericParseJSON,
-                                                  genericToEncoding, parseJSON,
-                                                  toEncoding, (.:))
-import           Control.Monad                   (mzero)
+import           Control.Monad          (mzero)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Data.Aeson             (FromJSON, Value (..), decode,
+                                         defaultOptions, encode,
+                                         genericParseJSON, genericToEncoding,
+                                         parseJSON, toEncoding, (.:))
+import           Data.Maybe             (catMaybes)
+import           GHC.Generics           (Generic)
+import qualified Network.HTTP.Simple    as H
+import           Text.Regex.TDFA        ((=~))
 
 data Issue = Issue
   { i_title  :: String

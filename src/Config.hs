@@ -16,7 +16,7 @@ import           Network.AMQP
 import           Text.Toml             (parseTomlDoc)
 import           Text.Toml.Types       (Node (..))
 
-import Network.Socket (PortNumber)
+import           Network.Socket        (PortNumber)
 
 
 data Options =

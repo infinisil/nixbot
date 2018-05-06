@@ -1,7 +1,7 @@
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Plugins.Hello (helloPlugin) where
 
-import Plugins
+import           Plugins
 
 helloPlugin :: Monad m => MyPlugin () m
 helloPlugin = MyPlugin () trans "hello"

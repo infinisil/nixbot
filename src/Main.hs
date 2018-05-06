@@ -4,25 +4,26 @@
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TemplateHaskell       #-}
 
 
 module Main where
 
 import           Config
-import Plugins.Nixpkgs
-import Plugins.Commands
-import Plugins.Pr
-import Plugins.Karma
-import Plugins.Hello
-import Plugins.NixRepl
-import Plugins
+import           Plugins
+import           Plugins.Commands
+import           Plugins.Hello
+import           Plugins.Karma
+import           Plugins.Nixpkgs
+import           Plugins.NixRepl
+import           Plugins.Pr
 
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
                                                   newEmptyTMVarIO, newTMVarIO,
                                                   putTMVar, takeTMVar)
 import           Control.Exception               (SomeException, handle)
+import           Control.Exception.Base          (IOException)
 import           Control.Monad                   (foldM, mzero)
 import           Control.Monad.Error.Class
 import           Control.Monad.IO.Class          (MonadIO, liftIO)
@@ -30,7 +31,6 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import qualified Control.Monad.State             as ST
 import           Control.Monad.State.Class
-import Data.Monoid ((<>))
 import           Data.Aeson                      (FromJSON, ToJSON, Value (..),
                                                   decode, defaultOptions,
                                                   encode, genericParseJSON,
@@ -44,6 +44,7 @@ import           Data.Functor.Identity
 import           Data.List                       (sortBy, stripPrefix)
 import qualified Data.Map                        as M
 import           Data.Maybe
+import           Data.Monoid                     ((<>))
 import           Data.Ord                        (comparing)
 import           Data.Text                       (Text, pack, unpack)
 import qualified Data.Text                       as Text
@@ -56,7 +57,6 @@ import           System.Environment              (getArgs)
 import           System.FilePath
 import           System.IO                       (BufferMode (..),
                                                   hSetBuffering, stdout)
-import Control.Exception.Base (IOException)
 import qualified System.IO.Strict                as S
 import           Text.EditDistance               (defaultEditCosts,
                                                   levenshteinDistance)
@@ -93,7 +93,7 @@ exchange = A.newExchange
   }
 
 data Env = Env
-  { config :: Config
+  { config     :: Config
   , connection :: A.Connection
   }
 
@@ -149,7 +149,7 @@ start = do
   liftIO $ A.addConnectionClosedHandler conn True $ writeDone var
   $(logDebug) "terminating if enter is pressed..."
   liftIO . atomically $ takeTMVar var
-  
+
 onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
 onInterrupt e = do
   $(logInfo) "Interrupted, closing connection"
@@ -166,7 +166,7 @@ publishMessage chan msg = do
 
     putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
     return intMb
-    
+
 onMessage :: Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
 onMessage cfg chan (m, e) =
   case decode $ A.msgBody m :: Maybe Input of

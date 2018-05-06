@@ -1,23 +1,24 @@
-{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Plugins where
-import Control.Monad.State
-import Control.Monad.Logger
-import Control.Monad.Reader
-import Control.Monad.State.Class
+import           Control.Monad.Logger
+import           Control.Monad.Reader
+import           Control.Monad.State
+import           Control.Monad.State.Class
 
-import           Data.Maybe (fromMaybe)
-import           Text.Read                       (readMaybe)
-import qualified System.IO.Strict                as S
-import           System.FilePath
+import           Data.Maybe                (fromMaybe)
 import           System.Directory
+import           System.FilePath
+import qualified System.IO.Strict          as S
+import           Text.Read                 (readMaybe)
 
-import Config
+import           Config
+
 
 type PluginInput = (String, String)
 data MyPlugin s m = MyPlugin { initState :: s
-                             , transf :: PluginInput -> StateT s m [String]
-                             , name :: String
+                             , transf    :: PluginInput -> StateT s m [String]
+                             , name      :: String
                              }
 
 data Backend s m = Backend { load :: m (Maybe s), store :: s -> m () }
