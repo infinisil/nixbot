@@ -83,7 +83,11 @@ tryMod mod = do
     Left error -> return $ Just error
 
 handle :: (MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
-handle (Definition lit val) = tryMod (\s -> s { variables = M.insert lit val (variables s) })
+handle (Definition lit val) = do
+  result <- tryMod (\s -> s { variables = M.insert lit val (variables s) })
+  case result of
+    Nothing    -> return . Just $ lit ++ " defined"
+    Just error -> return $ Just error
 handle (Evaluation lit) = do
   state <- get
   let contents = nixFile state ("_show (" ++ lit ++ ")")
@@ -91,18 +95,27 @@ handle (Evaluation lit) = do
   result <- nixInstantiate def
     { contents = contents
     , mode = Lazy
-    , options = publicOptions
+    , options = publicOptions { allowedUris = [ nixpkgs ] }
     }
   case result of
     Right value -> return $ Just value
     Left error  -> return $ Just error
 handle (Command "l" []) = return $ Just ":l needs an argument"
-handle (Command "l" args) = tryMod (\s -> s { scopes = unwords args : scopes s } )
+handle (Command "l" args) = do
+  result <- tryMod (\s -> s { scopes = unwords args : scopes s } )
+  case result of
+    Nothing    -> return $ Just "imported scope"
+    Just error -> return $ Just error
 handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
+
+nixpkgs = "https://github.com/NixOS/nixpkgs/archive/master.tar.gz"
 
 defaultVariables :: Map String String
 defaultVariables = M.fromList
   [ ("_show", "x: x")
+  , ("nixpkgs", "builtins.fetchTarball \"" ++ nixpkgs ++ "\"")
+  , ("pkgs", "import nixpkgs {}")
+  , ("lib", "pkgs.lib")
   ]
 
 nixreplPlugin :: (MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
