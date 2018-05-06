@@ -4,64 +4,49 @@
 {-# LANGUAGE QuasiQuotes       #-}
 
 module Config ( getConfig
+              , amqpOptions
               , Config(..)
               ) where
 
 import           NixEval
 import           Utils.FileLiteral
 
-import qualified Data.ByteString.Lazy.Char8 as B
-
 import           Data.Aeson
-import qualified Data.HashMap.Strict        as H
-import qualified Data.Map                   as M
-import           Data.Semigroup             ((<>))
-import           GHC.Generics
-import           Options.Applicative
-import           System.Environment         (getArgs)
-import           Text.Megaparsec.Error
-
-import           Data.Text                  (Text, pack, unpack)
+import           Data.ByteString.Lazy.Char8 (pack)
+import           Data.Map                   (singleton)
+import           Data.Text                  (Text)
+import           GHC.Generics               (Generic)
 import           Network.AMQP
-
-import           Text.Toml                  (parseTomlDoc)
-import           Text.Toml.Types            (Node (..))
-
-import           Network.Socket             (PortNumber)
-
-
-data NewOptions = NewOptions
-  { name     :: Text
-  , password :: Text
-  , stateDir :: FilePath
-  } deriving (Show, Generic)
-
-instance FromJSON NewOptions where
+import           System.Environment         (getArgs)
 
 data Config = Config
-  { amqpOptions :: ConnectionOpts
-  , stateDir'   :: FilePath
-  }
+  { user     :: Text
+  , password :: Text
+  , stateDir :: FilePath
+  , argsPath :: FilePath
+  } deriving (Show, Generic)
 
-makeConfig :: NewOptions -> Config
-makeConfig NewOptions { name, password, stateDir } = Config
-  { amqpOptions = defaultConnectionOpts
-    { coVHost = "ircbot"
-    , coTLSSettings = Just TLSTrusted
-    , coServers = [("events.nix.gsc.io", 5671)]
-    , coAuth = [ amqplain "ircbot-infinisil" password ]
-    }
-  , stateDir' = stateDir
-  }
+instance FromJSON Config where
 
-options = [litFile|options.nix|]
+amqpOptions :: Config -> ConnectionOpts
+amqpOptions Config { user, password } = defaultConnectionOpts
+  { coVHost = "ircbot"
+  , coTLSSettings = Just TLSTrusted
+  , coServers = [("events.nix.gsc.io", 5671)]
+  , coAuth = [ amqplain user password ]
+  }
 
 getConfig :: IO Config
 getConfig = do
   configFile:_ <- getArgs
-  result <- nixInstantiate options Nothing (M.singleton "cfg" ("import " ++ configFile)) ["nixpkgs=https://github.com/NixOS/nixpkgs-channels/archive/nixos-unstable.tar.gz"] Json def
+  result <- nixInstantiate def
+    { contents = [litFile|options.nix|]
+    , arguments = singleton "cfg" ("import " ++ configFile)
+    , nixPath = ["nixpkgs=https://github.com/NixOS/nixpkgs-channels/archive/nixos-unstable.tar.gz"]
+    , mode = Json
+    }
   case result of
     Left error -> fail $ "Error evaluating config file: " ++ show error
-    Right result -> case eitherDecode $ B.pack result of
+    Right result -> case eitherDecode $ pack result of
       Left error   -> fail $ "Error reading json value: " ++ show error
-      Right config -> return $ makeConfig config
+      Right config -> return config

@@ -4,6 +4,7 @@ module NixEval ( nixInstantiate
                , EvalMode(..)
                , publicOptions
                , def
+               , NixEvalOptions(..)
                ) where
 
 import           Control.Monad.IO.Class
@@ -85,22 +86,41 @@ modeToArgs Lazy   = ["--eval"]
 modeToArgs Strict = ["--eval", "--strict"]
 modeToArgs Json   = ["--eval", "--strict", "--json"]
 
+data NixEvalOptions = NixEvalOptions
+  { contents  :: String
+  , attribute :: Maybe String
+  , arguments :: Map String String
+  , nixPath   :: [String]
+  , mode      :: EvalMode
+  , options   :: NixOptions
+  }
+
+instance Default NixEvalOptions where
+  def = NixEvalOptions
+    { contents = ""
+    , attribute = Nothing
+    , arguments = M.empty
+    , nixPath = []
+    , mode = Lazy
+    , options = def
+    }
+
 nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
 
-nixInstantiate :: MonadIO m => String -> Maybe String -> Map String String -> [String] -> EvalMode -> NixOptions -> m (Either String String)
-nixInstantiate contents attr nixArgs nixPath mode opts = do
-  liftIO . putStrLn $ "Calling nix-instantiate with options:\n" ++ concatMap (\o -> "\t" ++ o ++ "\n") options ++ "\nwith file:\n" ++ contents ++ "\n"
-  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath options contents
+nixInstantiate :: MonadIO m => NixEvalOptions -> m (Either String String)
+nixInstantiate NixEvalOptions { contents, attribute, arguments, nixPath, mode, options } = do
+  liftIO . putStrLn $ "Calling nix-instantiate with options:\n" ++ concatMap (\o -> "\t" ++ o ++ "\n") opts ++ "\nwith file:\n" ++ contents ++ "\n"
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath opts contents
   case exitCode of
     ExitSuccess      -> return . Right $ outputTransform stdout
     ExitFailure code -> return . Left $ outputTransform stderr
   where
-    options = modeToArgs mode
+    opts = modeToArgs mode
       ++ [ "-" ]
-      ++ maybe [] (\a -> [ "-A", a ]) attr
-      ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs nixArgs)
+      ++ maybe [] (\a -> [ "-A", a ]) attribute
+      ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs arguments)
       ++ concatMap (\p -> [ "-I", p ]) nixPath
-      ++ optionsToArgs opts
+      ++ optionsToArgs options
 
 outputTransform :: String -> String
 outputTransform = take 200 . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines

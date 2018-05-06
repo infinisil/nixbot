@@ -26,7 +26,7 @@ data Backend s m = Backend { load :: m (Maybe s), store :: s -> m () }
 fileBackend :: (Read s, MonadLogger m, Show s, MonadIO m, MonadReader Config m) => FilePath -> Backend s m
 fileBackend path = Backend
   { load = do
-      statePath <- reader stateDir'
+      statePath <- reader stateDir
       let fullPath = statePath </> path
 
       liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
@@ -37,7 +37,7 @@ fileBackend path = Backend
           contents <- liftIO $ S.readFile fullPath
           return $ readMaybe contents
   , store = \s -> do
-      statePath <- reader stateDir'
+      statePath <- reader stateDir
       let fullPath = statePath </> path
       liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
       liftIO . writeFile fullPath $ show s
