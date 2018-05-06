@@ -1,6 +1,9 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NamedFieldPuns   #-}
 module Plugins.NixRepl (nixreplPlugin) where
+
+import           NixEval
+import           Plugins
 
 import           Control.Applicative        ((<|>))
 import           Control.Monad.Logger
@@ -9,7 +12,6 @@ import           Control.Monad.State.Class
 import           Data.List
 import           Data.Maybe                 (fromMaybe, listToMaybe,
                                              maybeToList)
-import           Plugins
 import           System.Exit                (ExitCode (..))
 import           System.Process             (readProcessWithExitCode)
 import qualified Text.Megaparsec            as P
@@ -26,7 +28,7 @@ data Instruction = Definition String String
 
 data NixState = NixState
   { variables :: Map String String
-  , scopes :: [ String ]
+  , scopes    :: [ String ]
   } deriving (Show, Read)
 
 type Parser = P.Parsec () String
@@ -56,33 +58,9 @@ parser =
         value <- P.takeRest
         return $ Definition lit value
 
-nixpkgs = "https://github.com/NixOS/nixpkgs/archive/master.tar.gz"
-nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
-nixInstantiateOptions = concat [ ["--option", var, val] | (var, val) <-
-                            [ ("cores", "0")
-                            , ("fsync-metadata", "false")
-                            , ("restrict-eval", "true")
-                            , ("sandbox", "true")
-                            , ("timeout", "3")
-                            , ("max-jobs", "1")
-                            , ("allow-import-from-derivation", "false")
-                            , ("allowed-uris", nixpkgs)
-                            ] ] ++ [ "--show-trace", "-" ]
-
-outputTransform :: String -> String
-outputTransform = take 200 . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
-
-nixInstantiate :: MonadIO m => Bool -> String -> m (Either String String)
-nixInstantiate eval contents = do
-  let options = (if eval then "--eval" else "--parse") : nixInstantiateOptions
-  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath options contents
-  case exitCode of
-    ExitSuccess      -> return . Right $ outputTransform stdout
-    ExitFailure code -> return . Left $ outputTransform stderr
-
 
 nixFile :: NixState -> String -> String
-nixFile (NixState { variables, scopes }) lit = "let\n"
+nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\(lit, val) -> "\t" ++ lit ++ " = " ++ val ++ ";\n") (M.assocs (M.union variables defaultVariables))
     ++ "in \n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
@@ -93,7 +71,7 @@ tryMod mod = do
   newState <- gets mod
   let contents = nixFile newState "null"
   liftIO . putStrLn $ "Trying to modify nix state to:\n" ++ contents ++ "\n"
-  result <- nixInstantiate False contents
+  result <- nixInstantiate contents Nothing Parse publicOptions
   case result of
     Right _ -> do
       put newState
@@ -106,7 +84,7 @@ handle (Evaluation lit) = do
   state <- get
   let contents = nixFile state ("_show (" ++ lit ++ ")")
   liftIO . putStrLn $ "Trying to evaluate " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
-  result <- nixInstantiate True contents
+  result <- nixInstantiate contents Nothing Lazy publicOptions
   case result of
     Right value -> return $ Just value
     Left error  -> return $ Just error
@@ -117,9 +95,6 @@ handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
 defaultVariables :: Map String String
 defaultVariables = M.fromList
   [ ("_show", "x: x")
-  , ("nixpkgs", "builtins.fetchTarball \"" ++ nixpkgs ++ "\"")
-  , ("pkgs", "import nixpkgs {}")
-  , ("lib", "pkgs.lib")
   ]
 
 nixreplPlugin :: (MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m

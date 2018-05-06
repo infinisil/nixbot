@@ -25,6 +25,7 @@ executable nixbot
                        Plugins.Nixpkgs
                        Plugins.Pr
                        Plugins.NixRepl
+                       NixEval
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
@@ -48,3 +49,4 @@ executable nixbot
                      , network
                      , monad-stm
                      , process
+                     , data-default
