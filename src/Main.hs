@@ -15,6 +15,7 @@ import Plugins.Commands
 import Plugins.Pr
 import Plugins.Karma
 import Plugins.Hello
+import Plugins.NixRepl
 import Plugins
 
 import           Control.Concurrent              (forkIO)
@@ -190,17 +191,20 @@ newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ Pl
 newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
                       , prPlugin `onDomain` nixOS
                       , commandsPlugin `onDomain` nixOS
+                      , nixreplPlugin `onDomain` nixOS
                       ]
 newPlugins "#bottest" = [ karmaPlugin `onDomain` nixOS
                         , prPlugin `onDomain` nixOS
                         , helloPlugin `onDomain` nixOS
                         , commandsPlugin `onDomain` nixOS
                         , nixpkgsPlugin `onDomain` nixOS
+                        , nixreplPlugin `onDomain` "bottest"
                         ]
 newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
                            , prPlugin `onDomain` nixOS
                            , helloPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
+                           , nixreplPlugin `onDomain` "nixos-borg"
                            ]
 newPlugins ('#':_) = []
 newPlugins nick = [ commandsPlugin `onDomain` nick

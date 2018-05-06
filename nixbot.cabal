@@ -24,6 +24,7 @@ executable nixbot
                        Plugins.Karma
                        Plugins.Nixpkgs
                        Plugins.Pr
+                       Plugins.NixRepl
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
@@ -46,3 +47,4 @@ executable nixbot
                      , megaparsec
                      , network
                      , monad-stm
+                     , process
