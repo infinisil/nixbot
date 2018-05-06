@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module Plugins.NixRepl (nixreplPlugin) where
 
 import           Control.Applicative        ((<|>))
@@ -20,18 +21,30 @@ import qualified Data.Map                   as M
 
 data Instruction = Definition String String
                  | Evaluation String
+                 | Command String [String]
                  deriving Show
 
-type NixState = Map String String
+data NixState = NixState
+  { variables :: Map String String
+  , scopes :: [ String ]
+  } deriving (Show, Read)
 
 type Parser = P.Parsec () String
 
 parser :: Parser Instruction
 parser =
-  P.try defParser <|> Evaluation <$> (C.space *> P.takeRest)
+  P.try cmdParser <|> P.try defParser <|> Evaluation <$> (C.space *> P.takeRest)
     where
       literal :: Parser String
       literal = (:) <$> (C.letterChar <|> C.char '_') <*> P.many C.alphaNumChar
+
+      cmdParser :: Parser Instruction
+      cmdParser = do
+        C.space
+        C.char ':'
+        cmd <- literal
+        args <- P.many (C.space *> P.some (C.notChar ' '))
+        return $ Command cmd args
 
       defParser :: Parser Instruction
       defParser = do
@@ -43,6 +56,7 @@ parser =
         value <- P.takeRest
         return $ Definition lit value
 
+nixpkgs = "https://github.com/NixOS/nixpkgs/archive/master.tar.gz"
 nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
 nixInstantiateOptions = concat [ ["--option", var, val] | (var, val) <-
                             [ ("cores", "0")
@@ -53,9 +67,7 @@ nixInstantiateOptions = concat [ ["--option", var, val] | (var, val) <-
                             , ("max-jobs", "1")
                             , ("allow-import-from-derivation", "false")
                             , ("allowed-uris", nixpkgs)
-                            ] ] ++ [ "-I", "nixpkgs=" ++ nixpkgs, "--show-trace", "-" ]
-                        where
-                          nixpkgs = "https://github.com/NixOS/nixpkgs/archive/master.tar.gz"
+                            ] ] ++ [ "--show-trace", "-" ]
 
 outputTransform :: String -> String
 outputTransform = take 200 . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
@@ -70,21 +82,26 @@ nixInstantiate eval contents = do
 
 
 nixFile :: NixState -> String -> String
-nixFile state lit = "let\n"
-    ++ concatMap (\(lit, val) -> "\t" ++ lit ++ " = " ++ val ++ ";\n") (M.assocs state)
-    ++ "in " ++ lit
+nixFile (NixState { variables, scopes }) lit = "let\n"
+    ++ concatMap (\(lit, val) -> "\t" ++ lit ++ " = " ++ val ++ ";\n") (M.assocs (M.union variables defaultVariables))
+    ++ "in \n"
+    ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
+    ++ "\t" ++ lit
 
-handle :: (MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
-handle (Definition lit val) = do
-  potNewState <- gets $ M.insert lit val
-  let contents = nixFile potNewState "null"
-  liftIO . putStrLn $ "Trying to validate new definition for " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
+tryMod :: (MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
+tryMod mod = do
+  newState <- gets mod
+  let contents = nixFile newState "null"
+  liftIO . putStrLn $ "Trying to modify nix state to:\n" ++ contents ++ "\n"
   result <- nixInstantiate False contents
   case result of
     Right _ -> do
-      put potNewState
-      return . Just $ lit ++ " defined"
+      put newState
+      return Nothing
     Left error -> return $ Just error
+
+handle :: (MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
+handle (Definition lit val) = tryMod (\s -> s { variables = M.insert lit val (variables s) })
 handle (Evaluation lit) = do
   state <- get
   let contents = nixFile state ("_show (" ++ lit ++ ")")
@@ -93,17 +110,22 @@ handle (Evaluation lit) = do
   case result of
     Right value -> return $ Just value
     Left error  -> return $ Just error
+handle (Command "l" []) = return $ Just ":l needs an argument"
+handle (Command "l" args) = tryMod (\s -> s { scopes = unwords args : scopes s } )
+handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
 
-defaults :: NixState
-defaults = M.fromList
+defaultVariables :: Map String String
+defaultVariables = M.fromList
   [ ("_show", "x: x")
-  , ("pkgs", "import <nixpkgs> {}")
+  , ("nixpkgs", "builtins.fetchTarball \"" ++ nixpkgs ++ "\"")
+  , ("pkgs", "import nixpkgs {}")
   , ("lib", "pkgs.lib")
   ]
 
-nixreplPlugin :: (MonadIO m, MonadLogger m, Monad m) => MyPlugin (Map String String) m
-nixreplPlugin = MyPlugin defaults trans "nixrepl"
+nixreplPlugin :: (MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
+nixreplPlugin = MyPlugin initialState trans "nixrepl"
   where
+    initialState = NixState M.empty []
     trans (_, '>':nixString) = case P.runParser parser "(input)" nixString of
       Right instruction -> maybeToList <$> handle instruction
       Left _            -> return []

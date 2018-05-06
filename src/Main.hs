@@ -183,7 +183,7 @@ onMessage cfg chan (m, e) =
 
 reply :: Config -> Input -> IO [String]
 reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = newPlugins channel
+  let chanPlugs = [ nixreplPlugin `onDomain` nixOS | channel == "#bottest" ]
   replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
   return $ take 3 $ concat replies
 
