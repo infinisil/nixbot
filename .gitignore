@@ -1,7 +1,7 @@
 TAGS
 .stack-work
 config.nix
-release.toml
+release.nix
 result
 dist
 state

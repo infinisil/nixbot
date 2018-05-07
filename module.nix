@@ -15,12 +15,14 @@
     after = [ "network.target" ];
     script = ''
       export PATH="${lib.makeBinPath (with pkgs; [ gnutar gzip ])}:$PATH"
-      ${(import ./stack2nix.nix { inherit pkgs; }).nixbot}/bin/nixbot --config ${./release.toml}
+      ${(import ./stack2nix.nix { inherit pkgs; }).nixbot}/bin/nixbot ${./release.nix}
     '';
     serviceConfig = {
       User = "nixbot";
       Restart = "on-failure";
       RestartSec = 1;
+      MemoryMax = "200M";
+      CPUQuota = "10%";
     };
   };
 }
