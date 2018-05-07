@@ -22,7 +22,7 @@
       Restart = "on-failure";
       RestartSec = 1;
       MemoryMax = "200M";
-      CPUQuota = "10%";
+      CPUQuota = "50%";
     };
   };
 }
