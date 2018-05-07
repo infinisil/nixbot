@@ -158,14 +158,14 @@ onInterrupt e = do
 
 publishMessage :: A.Channel -> Output -> IO (Maybe Int)
 publishMessage chan msg = do
-    putStrLn $ "Sending the message " <> show msg
-    -- publish a message to our new exchange
-    intMb <- A.publishMsg chan "" "queue-publish" A.newMsg
-      { A.msgBody = encode msg
-      , A.msgDeliveryMode = Just A.Persistent}
+  putStrLn $ "Sending the message " <> show msg
+  -- publish a message to our new exchange
+  intMb <- A.publishMsg chan "" "queue-publish" A.newMsg
+    { A.msgBody = encode msg
+    , A.msgDeliveryMode = Just A.Persistent}
 
-    putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
-    return intMb
+  putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
+  return intMb
 
 onMessage :: Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
 onMessage cfg chan (m, e) =
@@ -183,7 +183,7 @@ onMessage cfg chan (m, e) =
 
 reply :: Config -> Input -> IO [String]
 reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = [ nixreplPlugin `onDomain` nixOS | channel == "#bottest" ]
+  let chanPlugs = newPlugins channel
   replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
   return $ take 3 $ concat replies
 
