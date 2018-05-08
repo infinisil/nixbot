@@ -116,6 +116,9 @@ handle (Command "l" args) = do
   case result of
     Nothing    -> return $ Just "imported scope"
     Just error -> return $ Just error
+handle (Command "v" [var]) = do
+  val <- gets $ M.findWithDefault (var ++ " is not defined") var . flip M.union defaultVariables . variables
+  return . Just $ var ++ " = " ++ val
 handle (Command "v" _) = do
   vars <- gets $ M.keys . flip M.union defaultVariables . variables
   return . Just $ "All bindings: " ++ unwords vars
