@@ -19,9 +19,9 @@
     '';
     serviceConfig = {
       User = "nixbot";
-      Restart = "on-failure";
+      Restart = "always";
       RestartSec = 1;
-      MemoryMax = "200M";
+      MemoryMax = "100M";
       CPUQuota = "50%";
     };
   };
