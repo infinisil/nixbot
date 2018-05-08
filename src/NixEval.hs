@@ -189,11 +189,14 @@ toIRC (Command ints 'm') = r
     r = concatMap (\i -> M.findWithDefault "" i toIRCCodes) ints
 toIRC _                  = ""
 
-translateCodes :: String -> String
-translateCodes str = concatMap thing $ trans str
-  where
-    thing (Left cmd)   = toIRC cmd
-    thing (Right char) = [char]
+translateCodes (Left cmd)   = toIRC cmd
+translateCodes (Right char) = [char]
+
+takeChars :: Int -> [Either Command Char] -> [Either Command Char]
+takeChars n []                    = []
+takeChars 0 _                     = []
+takeChars n (cmd@(Left _):rest)   = cmd : takeChars n rest
+takeChars n (char@(Right _):rest) = char : takeChars (n - 1) rest
 
 outputTransform :: String -> String
-outputTransform = translateCodes . take 200 . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
+outputTransform = concatMap translateCodes . takeChars 200 . trans . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
