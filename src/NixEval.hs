@@ -190,11 +190,12 @@ toIRC _                  = ""
 translateCodes (Left cmd)   = toIRC cmd
 translateCodes (Right char) = [char]
 
-takeChars :: Int -> [Either Command Char] -> [Either Command Char]
-takeChars n []                    = []
-takeChars 0 _                     = []
-takeChars n (cmd@(Left _):rest)   = cmd : takeChars n rest
-takeChars n (char@(Right _):rest) = char : takeChars (n - 1) rest
+limit :: Int -> [Either Command Char] -> [Either Command Char]
+limit 0 []                = []
+limit 0 _                 = fmap Right "..."
+limit n []                = []
+limit n (Left cmd:rest)   = Left cmd : limit n rest
+limit n (Right char:rest) = Right char : limit (n-1) rest
 
 outputTransform :: String -> String
-outputTransform = concatMap translateCodes . takeChars 200 . trans . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
+outputTransform = concatMap translateCodes . limit 200 . trans . fromMaybe "(no output)" . listToMaybe . take 1 . reverse . lines
