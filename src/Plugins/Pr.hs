@@ -40,10 +40,10 @@ prToInfo (p, n) = do
   putStrLn $ "Sending request to github for nixOS/" ++ p ++ "#" ++ show n
 
   req <- fmap (H.setRequestHeader "user-agent" ["haskell"]) $ H.parseRequest $ "https://api.github.com/repos/nixOS/" ++ p ++ "/issues/" ++ show n
-  response <- H.httpJSON req :: IO (H.Response Issue)
-  let body = H.getResponseBody response
-
-  return $ Just $ i_url body ++ " (by " ++ i_author body ++ ", " ++ i_state body ++ "): " ++ i_title body
+  body <- H.getResponseBody <$> H.httpJSONEither req
+  case body of
+    Right result -> return $ Just $ i_url result ++ " (by " ++ i_author result ++ ", " ++ i_state result ++ "): " ++ i_title result
+    Left _ -> return Nothing
 
 
 parsePRs :: String -> String -> [(String, Int)]
