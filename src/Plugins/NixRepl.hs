@@ -104,7 +104,7 @@ handle (Definition lit val) = do
     Just error -> return $ Just error
 handle (Evaluation lit) = do
   state <- get
-  let contents = nixFile state ("_show (" ++ lit ++ ")")
+  let contents = nixFile state ("_show (\n" ++ lit ++ "\n)")
   liftIO . putStrLn $ "Trying to evaluate " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
   result <- nixEval contents True
   case result of
