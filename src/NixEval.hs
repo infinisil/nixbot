@@ -184,9 +184,7 @@ toIRCCodes = M.fromList
 
 toIRC :: Command -> String
 toIRC (Command [] 'm')   = ""
-toIRC (Command ints 'm') = r
-  where
-    r = concatMap (\i -> M.findWithDefault "" i toIRCCodes) ints
+toIRC (Command ints 'm') = concatMap (\i -> M.findWithDefault "" i toIRCCodes) ints
 toIRC _                  = ""
 
 translateCodes (Left cmd)   = toIRC cmd
