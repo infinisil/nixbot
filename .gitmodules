@@ -1,0 +1,3 @@
+[submodule "hnix"]
+	path = hnix
+	url = https://github.com/Infinisil/hnix

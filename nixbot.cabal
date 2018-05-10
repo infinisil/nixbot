@@ -52,3 +52,4 @@ executable nixbot
                      , data-default
                      , template-haskell
                      , file-embed
+                     , hnix
