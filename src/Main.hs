@@ -206,6 +206,12 @@ newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "nixos-borg"
                            ]
+
+newPlugins "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
+                           , prPlugin `onDomain` nixOS
+                           , commandsPlugin `onDomain` nixOS
+                           , nixreplPlugin `onDomain` nixOS
+                           ]
 newPlugins ('#':_) = []
 newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
