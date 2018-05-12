@@ -57,4 +57,4 @@ parsePRs def str = parsed
 prPlugin :: MonadIO m => MyPlugin () m
 prPlugin = MyPlugin () trans "pr"
   where
-    trans (nick, msg) = liftIO $ fmap catMaybes . mapM prToInfo $ parsePRs "nixpkgs" msg
+    trans (nick, msg) = liftIO $ fmap catMaybes . mapM prToInfo . filter (\(repo, n) -> repo /= "nixpkgs" || n >= 1000). parsePRs "nixpkgs" $ msg
