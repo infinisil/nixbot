@@ -191,7 +191,13 @@ newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ Pl
 newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
                       , prPlugin `onDomain` nixOS
                       , commandsPlugin `onDomain` nixOS
-                      , nixreplPlugin `onDomain` nixOS
+                      , nixreplPlugin `onDomain` "bottest"
+                      ]
+newPlugins "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
+                      , prPlugin `onDomain` nixOS
+                      , commandsPlugin `onDomain` nixOS
+                      , nixreplPlugin `onDomain` "bottest"
+                      , nixpkgsPlugin `onDomain` "bottest"
                       ]
 newPlugins "#bottest" = [ karmaPlugin `onDomain` nixOS
                         , prPlugin `onDomain` nixOS
@@ -204,13 +210,13 @@ newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
                            , prPlugin `onDomain` nixOS
                            , helloPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
-                           , nixreplPlugin `onDomain` "nixos-borg"
+                           , nixreplPlugin `onDomain` "bottest"
                            ]
 
 newPlugins "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
                            , prPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
-                           , nixreplPlugin `onDomain` nixOS
+                           , nixreplPlugin `onDomain` "bottest"
                            ]
 newPlugins ('#':_) = []
 newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
