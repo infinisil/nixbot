@@ -3,7 +3,16 @@
 }:
 
 let
-  nixbot = (import ./stack2nix.nix { inherit pkgs; }).nixbot;
+
+  hpkgs = (import ./stack2nix.nix { inherit pkgs; }).override {
+    overrides = self: super: {
+      hnix = pkgs.haskell.lib.overrideCabal super.hnix (oldAttrs: {
+        libraryHaskellDepends = oldAttrs.libraryHaskellDepends ++ [
+          self.compact
+        ];
+      });
+    };
+  };
 
   src = builtins.filterSource (absName: type: let
     name = lib.removePrefix "${toString ./.}/" absName;
@@ -14,7 +23,9 @@ let
     || (lib.hasSuffix ".nix" name && ! lib.hasPrefix "hnix" name && ! (name == "options.nix")))
   ) ./.;
 
-in
-  nixbot.overrideAttrs (old: {
+  nixbot = hpkgs.nixbot.overrideAttrs (oldAttrs: {
     inherit src;
-  })
+  });
+
+in
+  nixbot

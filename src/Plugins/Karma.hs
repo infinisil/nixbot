@@ -18,16 +18,14 @@ karmaPlugin = MyPlugin M.empty trans "karma"
     trans (nick, msg) =
       case matches of
         Nothing   -> return []
-        Just user -> case user of
-          "infinisil" -> return ["Did you mean infinity? Increasing infinity doesn't do anything.."]
-          otheruser -> do
-            let decrease = user == nick
-            let mod = if decrease then (\x -> x - 1) else (\x -> x + 1)
-            oldMap <- get
-            let newKarma = mod . M.findWithDefault 0 user $ oldMap
-            modify (M.insert user newKarma)
-            return [ user ++ "'s karma got " ++
-              (if decrease then "decreased" else "increased")
-              ++ " to " ++ show newKarma ]
+        Just user -> do
+          let decrease = user == nick
+          let mod = if decrease then (\x -> x - 1) else (+1)
+          oldMap <- get
+          let newKarma = mod . M.findWithDefault 0 user $ oldMap
+          modify $ M.insert user newKarma
+          return [ user ++ "'s karma got " ++
+            (if decrease then "decreased" else "increased")
+            ++ " to " ++ show newKarma ]
       where
         matches = listToMaybe $ fmap (!!1) (msg =~ karmaRegex :: [[String]])
