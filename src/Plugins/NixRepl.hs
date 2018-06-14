@@ -165,7 +165,7 @@ updateNixpkgs = do
   exists <- liftIO $ doesPathExist nixpkgs
   result <- git $ if exists
     then ["-C", nixpkgs, "pull"]
-    else ["clone", "https://github.com/NixOS/nixpkgs.git", nixpkgs]
+    else ["clone", "--depth", "1", "https://github.com/NixOS/nixpkgs.git", nixpkgs]
   liftIO $ putStrLn result
   git ["-C", nixpkgs, "rev-parse", "HEAD"]
 
