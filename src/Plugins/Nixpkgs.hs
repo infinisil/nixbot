@@ -15,7 +15,7 @@ import           Plugins
 
 
 parseNixpkgs :: String -> [String]
-parseNixpkgs s = map (!! 1) (s =~ ("nixpkgs/([^[:space:]]+)+" :: String))
+parseNixpkgs s = map (!! 1) (s =~ ("<nixpkgs/([^[:space:]]+)+>" :: String))
 
 getNixpkgs :: MonadIO m => String -> m (Maybe String)
 getNixpkgs s = do

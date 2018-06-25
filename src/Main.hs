@@ -192,6 +192,7 @@ newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
                       , prPlugin `onDomain` nixOS
                       , commandsPlugin `onDomain` nixOS
                       , nixreplPlugin `onDomain` "bottest"
+                      , nixpkgsPlugin `onDomain` "bottest"
                       ]
 newPlugins "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
                       , prPlugin `onDomain` nixOS
