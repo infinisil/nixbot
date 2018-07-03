@@ -1,13 +1,16 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Plugins.Commands (commandsPlugin) where
 
-import           Data.List           (sortBy)
-import           Data.Map            (Map)
-import qualified Data.Map            as M
-import           Data.Maybe          (fromJust)
-import           Data.Ord            (comparing)
+import           Control.Monad.IO.Class
+import           Data.List              (intercalate, sortBy)
+import           Data.Map               (Map)
+import qualified Data.Map               as M
+import           Data.Maybe             (fromJust)
+import           Data.Ord               (comparing)
 import           Plugins
-import           Text.EditDistance   (defaultEditCosts, levenshteinDistance)
+import           System.Exit
+import           System.Process
+import           Text.EditDistance      (defaultEditCosts, levenshteinDistance)
 
 
 import           Control.Monad.State
@@ -37,13 +40,34 @@ lookupCommand str map = result
                (str, 0):_ -> Exact . fromJust $ M.lookup str map
                (str, _):_ -> Guess str . fromJust $ M.lookup str map
 
-commandsPlugin :: Monad m => MyPlugin (Map String String) m
+nixLocate :: MonadIO m => String -> m (Either String [String])
+nixLocate file = do
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
+    [ "--minimal"
+    , "--top-level"
+    , "--whole-name"
+    , file
+    ] ""
+  case exitCode of
+    ExitFailure code -> return $ Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
+    ExitSuccess -> return $ Right $ lines stdout
+
+commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (nick, ',':command) = case words command of
       [] -> do
         keys <- gets M.keys
         return ["All commands: " ++ unwords keys]
+      "locate":args -> case args of
+        [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
+        [arg] -> do
+          packages <- nixLocate arg
+          return $ case packages of
+            Left error -> [error]
+            Right [] -> ["Couldn't find any packages"]
+            Right packages -> ["Found packages: " ++ intercalate ", " packages]
+        _ -> return [",locate only takes 1 argument"]
       [ cmd ] -> do
         result <- gets (lookupCommand cmd)
         return $ replyLookup nick Nothing result

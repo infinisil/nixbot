@@ -9,6 +9,8 @@
     group = "users";
   };
 
+  environment.systemPackages = [ pkgs.nix-index ];
+
   systemd.services.nixbot = {
     description = "Nix bot";
     wantedBy = [ "multi-user.target" ];
