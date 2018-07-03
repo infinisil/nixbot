@@ -219,10 +219,19 @@ newPlugins "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "bottest"
                            ]
+newPlugins "#nix-lang" = [ karmaPlugin `onDomain` nixOS
+                         , prPlugin `onDomain` nixOS
+                         , commandsPlugin `onDomain` "nixlang"
+                         , nixreplPlugin `onDomain` "nixlang"
+                         , nixpkgsPlugin `onDomain` nixOS
+                         ]
 newPlugins ('#':_) = []
 newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
+                  , nixreplPlugin `onDomain` ("users/" ++ nick)
+                  , prPlugin `onDomain` ("users/" ++ nick)
+                  , nixpkgsPlugin `onDomain` ("users/" ++ nick)
                   ]
 
 -- Domains
