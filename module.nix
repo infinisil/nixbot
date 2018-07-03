@@ -25,6 +25,7 @@
       RestartSec = 1;
       MemoryMax = "100M";
       CPUQuota = "50%";
+      WorkingDirectory = "/var/lib/nixbot/state/nixpkgs";
     };
   };
 }
