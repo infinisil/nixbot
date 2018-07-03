@@ -1,19 +1,30 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections    #-}
 module Plugins.Commands (commandsPlugin) where
 
 import           Control.Monad.IO.Class
-import           Data.List              (intercalate, sortBy)
-import           Data.Map               (Map)
-import qualified Data.Map               as M
-import           Data.Maybe             (fromJust)
-import           Data.Ord               (comparing)
+import           Data.Bifunctor
+import qualified Data.ByteString.Char8   as BS
+import           Data.Char
+import           Data.Either.Combinators
+import           Data.List               (findIndex, intercalate, isSuffixOf,
+                                          sortBy)
+import           Data.Map                (Map)
+import qualified Data.Map                as M
+import           Data.Maybe              (catMaybes, fromJust, fromMaybe,
+                                          listToMaybe, mapMaybe)
+import           Data.Ord                (comparing)
+import qualified Data.Text               as Text
+import           Data.Versions
 import           Plugins
 import           System.Exit
 import           System.Process
-import           Text.EditDistance      (defaultEditCosts, levenshteinDistance)
 
+import           Data.Aeson
+import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
 
 import           Control.Monad.State
+import           NixEval
 
 data LookupResult = Empty | Exact String | Guess String String
 
@@ -46,18 +57,77 @@ nixLocate file = do
     [ "--minimal"
     , "--top-level"
     , "--whole-name"
-    , file
+    , case file of
+        '/':_ -> file
+        _     -> '/':file
     ] ""
   case exitCode of
     ExitFailure code -> return $ Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
-    ExitSuccess -> return $ Right $ lines stdout
+    ExitSuccess -> do
+      packages <- refinePackageList $ lines stdout
+      return $ Right packages
+
+byBestNames :: [(String, String)] -> [String]
+byBestNames names = bestsStripped
+  where
+    pnames :: [(String, (String, String))]
+    pnames = map (\(attr, name) -> (attr, parseDrvName . init . tail $ name)) names
+    -- Map from package name to (Attribute, version)
+    nameMap :: Map String [(String, String)]
+    nameMap = foldr (\(attr, (pname, version)) -> M.insertWith (++) pname [(attr, version)]) M.empty pnames
+    chooseBestVersion :: [(String, String)] -> String
+    chooseBestVersion pairs = fst . last $ y
+      where
+        x = map (\(l, r) -> (l, rightToMaybe . parseV . Text.pack $ r)) pairs
+        y = sortBy (\(lattr, lvers) (rattr, rvers) ->
+                      compare (length rattr) (length lattr)
+                   ) x
+    bests = map chooseBestVersion $ M.elems nameMap
+    bestsStripped = map (stripSuffix ".out") bests
+
+splitAttrPath :: String -> [String]
+splitAttrPath path = map Text.unpack $ Text.split (=='.') (Text.pack path)
+
+refinePackageList :: MonadIO m => [String] -> m [String]
+refinePackageList packages = do
+  liftIO $ print $ "Called with " ++ show packages
+  let nixattrs = "[" ++ concatMap (\p -> "[" ++ concatMap (\a -> "\"" ++ a ++ "\"") (splitAttrPath p ++ ["name"]) ++ "]") packages ++ "]"
+  result <- nixInstantiate def
+    { contents = "with import <nixpkgs> {}; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
+    , mode = Json
+    , attributes = []
+    , nixPath = [ "nixpkgs=/var/lib/nixbot/state/nixpkgs" ]
+    , transform = id
+    }
+  case result of
+    Left error      -> return []
+    Right namesJson -> do
+      liftIO $ print $ "Got nixi result: " ++ namesJson
+      case decodeStrict (BS.pack namesJson) :: Maybe [Maybe String] of
+        Nothing -> do
+          liftIO $ putStrLn "Can't decode input"
+          return []
+        Just names -> return $ sortBy (\a b -> compare (length a) (length b)) . byBestNames . mapMaybe sequence . zip packages $ names
+
+stripSuffix :: String -> String -> String
+stripSuffix suffix string = if isSuffixOf suffix string then
+  take (length string - length suffix) string else string
+
+parseDrvName :: String -> (String, String)
+parseDrvName name = case splitIndex of
+  Nothing -> (name, "")
+  Just index -> let (left, right) = splitAt index name in
+    (left, tail right)
+  where
+    splitIndex = findIndex (uncurry (&&) . bimap (=='-') (not . isAlpha)) . zip name . tail $ name
+
 
 commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (nick, ',':command) = case words command of
       [] -> do
-        keys <- gets M.keys
+        keys <- gets (\k -> M.keys k)
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
@@ -66,7 +136,8 @@ commandsPlugin = MyPlugin M.empty trans "commands"
           return $ case packages of
             Left error -> [error]
             Right [] -> ["Couldn't find any packages"]
-            Right packages -> ["Found packages: " ++ intercalate ", " packages]
+            Right packages -> if length packages <= 7 then ["Found in packages: " ++ intercalate ", " packages]
+              else ["Found in packages: " ++ intercalate ", " (take 7 packages) ++ ", and " ++ show (length packages - 7) ++ " more"]
         _ -> return [",locate only takes 1 argument"]
       [ cmd ] -> do
         result <- gets (lookupCommand cmd)

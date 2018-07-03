@@ -94,39 +94,41 @@ modeToArgs Strict = ["--eval", "--strict"]
 modeToArgs Json   = ["--eval", "--strict", "--json"]
 
 data NixEvalOptions = NixEvalOptions
-  { contents  :: String
-  , attribute :: Maybe String
-  , arguments :: Map String String
-  , nixPath   :: [String]
-  , mode      :: EvalMode
-  , options   :: NixOptions
+  { contents   :: String
+  , attributes :: [String]
+  , arguments  :: Map String String
+  , nixPath    :: [String]
+  , mode       :: EvalMode
+  , options    :: NixOptions
+  , transform  :: String -> String
   }
 
 instance Default NixEvalOptions where
   def = NixEvalOptions
     { contents = ""
-    , attribute = Nothing
+    , attributes = []
     , arguments = M.empty
     , nixPath = []
     , mode = Lazy
     , options = def
+    , transform = outputTransform
     }
 
 nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
 
 nixInstantiate :: MonadIO m => NixEvalOptions -> m (Either String String)
-nixInstantiate NixEvalOptions { contents, attribute, arguments, nixPath, mode, options } = do
+nixInstantiate NixEvalOptions { contents, attributes, arguments, nixPath, mode, options, transform } = do
   liftIO . putStrLn $ "Calling nix-instantiate with options:\n" ++ concatMap (\o -> "\t" ++ o ++ "\n") opts ++ "\nwith file:\n" ++ contents ++ "\n"
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath opts contents
   liftIO . putStrLn $ "Got on stdout:\n" ++ stdout ++ "\n"
   liftIO . putStrLn $ "Got on stderr:\n" ++ stderr ++ "\n"
   case exitCode of
-    ExitSuccess      -> return . Right $ outputTransform stdout
-    ExitFailure code -> return . Left $ outputTransform stderr
+    ExitSuccess      -> return . Right $ transform stdout
+    ExitFailure code -> return . Left $ transform stderr
   where
     opts = modeToArgs mode
       ++ [ "-" ]
-      ++ maybe [] (\a -> [ "-A", a ]) attribute
+      ++ concatMap (\a -> [ "-A", a ]) attributes
       ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs arguments)
       ++ concatMap (\p -> [ "-I", p ]) nixPath
       ++ optionsToArgs options

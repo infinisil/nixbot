@@ -53,3 +53,5 @@ executable nixbot
                      , template-haskell
                      , file-embed
                      , hnix
+                     , versions
+                     , either
