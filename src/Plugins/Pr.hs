@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Plugins.Pr (prPlugin) where
+module Plugins.Pr (prPlugin, Settings(..)) where
 
 import           Plugins
 
@@ -92,12 +92,7 @@ prReplies settings@Settings { prFilter } input = do
   where
     filtered = filter prFilter $ parseIssues settings input
 
-prPlugin :: MonadIO m => MyPlugin () m
-prPlugin = MyPlugin () trans "pr"
+prPlugin :: MonadIO m => Settings -> MyPlugin () m
+prPlugin settings = MyPlugin () trans "pr"
   where
     trans (nick, msg) = prReplies settings msg
-    settings = Settings
-      { defOwner = const "NixOS"
-      , defRepo = "nixpkgs"
-      , prFilter = const True
-      }

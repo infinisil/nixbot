@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
@@ -187,40 +188,55 @@ reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
   replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
   return $ take 3 $ concat replies
 
+prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]
+prPlug = prPlugin Settings
+  { defOwner = \case
+      "home-manager" -> "rycee"
+      "cachix" -> "cachix"
+      "nix-darwin" -> "LnL7"
+      "NUR" -> "nix-community"
+      "wiki" -> "nix-community"
+      "hnix" -> "haskell-nix"
+      _ -> "NixOS"
+  , defRepo = "nixpkgs"
+  , prFilter = const True
+  } `onDomain` nixOS
+
+
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ PluginInput -> m [String] ]
 newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
-                      , prPlugin `onDomain` nixOS
+                      , prPlug
                       , commandsPlugin `onDomain` nixOS
                       , nixreplPlugin `onDomain` "bottest"
                       , nixpkgsPlugin `onDomain` "bottest"
                       ]
 newPlugins "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
-                      , prPlugin `onDomain` nixOS
+                      , prPlug
                       , commandsPlugin `onDomain` nixOS
                       , nixreplPlugin `onDomain` "bottest"
                       , nixpkgsPlugin `onDomain` "bottest"
                       ]
 newPlugins "#bottest" = [ karmaPlugin `onDomain` nixOS
-                        , prPlugin `onDomain` nixOS
+                        , prPlug
                         , helloPlugin `onDomain` nixOS
                         , commandsPlugin `onDomain` nixOS
                         , nixpkgsPlugin `onDomain` nixOS
                         , nixreplPlugin `onDomain` "bottest"
                         ]
 newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
-                           , prPlugin `onDomain` nixOS
+                           , prPlug
                            , helloPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "bottest"
                            ]
 
 newPlugins "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
-                           , prPlugin `onDomain` nixOS
+                           , prPlug
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "bottest"
                            ]
 newPlugins "#nix-lang" = [ karmaPlugin `onDomain` nixOS
-                         , prPlugin `onDomain` nixOS
+                         , prPlug
                          , commandsPlugin `onDomain` "nixlang"
                          , nixreplPlugin `onDomain` "nixlang"
                          , nixpkgsPlugin `onDomain` nixOS
@@ -230,7 +246,7 @@ newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
-                  , prPlugin `onDomain` ("users/" ++ nick)
+                  , prPlug
                   , nixpkgsPlugin `onDomain` ("users/" ++ nick)
                   ]
 
