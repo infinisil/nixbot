@@ -6,6 +6,7 @@ import           Control.Monad.IO.Class
 import           Data.Bifunctor
 import qualified Data.ByteString.Char8   as BS
 import           Data.Char
+import           Data.Either
 import           Data.Either.Combinators
 import           Data.List               (findIndex, intercalate, isSuffixOf,
                                           sortBy)
@@ -57,32 +58,36 @@ data LocateMode = Generic
 
 argsForMode :: LocateMode -> String -> [String]
 argsForMode Generic arg =
-  [ "--whole-name"
-  , case arg of
+  [ case arg of
     '/':_ -> arg
     _     -> '/':arg
   ]
 argsForMode Bin arg =
-  [ "--whole-name"
-  , "--at-root"
+  [ "--at-root"
   , "/bin/" ++ arg
   ]
 argsForMode Man arg =
   [ "--regex"
   , "--at-root"
-  , "--whole-name"
   , "/share/man/man[0-9]/" ++ arg ++ ".[0-9].gz"
   ]
 
+nixLocate' :: MonadIO m => LocateMode -> Bool -> String -> m (Either String [String])
+nixLocate' mode whole file = do
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
+    ("--minimal":"--top-level":argsForMode mode file ++ [ "--whole-name" | whole ]) ""
+  return $ case exitCode of
+    ExitFailure code -> Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
+    ExitSuccess -> Right $ lines stdout
+
 nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [String])
 nixLocate mode file = do
-  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
-    ("--minimal":"--top-level":argsForMode mode file) ""
-  case exitCode of
-    ExitFailure code -> return $ Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
-    ExitSuccess -> do
-      packages <- refinePackageList $ lines stdout
-      return $ Right packages
+  whole <- nixLocate' mode True file
+  all <- case whole of
+    Left error -> return $ Left error
+    Right []   -> nixLocate' mode False file
+    Right _    -> return whole
+  mapM refinePackageList all
 
 byBestNames :: [(String, String)] -> [String]
 byBestNames names = bestsStripped
