@@ -14,7 +14,7 @@ import           Data.Aeson             (FromJSON, Value (..), decode,
 import           Data.Maybe             (catMaybes)
 import           GHC.Generics           (Generic)
 import qualified Network.HTTP.Simple    as H
-import           Text.Regex.TDFA        ((=~))
+import           Text.Regex.TDFA
 
 data Issue = Issue
   { i_title  :: String
@@ -45,6 +45,28 @@ prToInfo (p, n) = do
     Right result -> return $ Just $ i_url result ++ " (by " ++ i_author result ++ ", " ++ i_state result ++ "): " ++ i_title result
     Left _ -> return Nothing
 
+
+type Owner = String
+type Repo = String
+data ParseType = Hash | Link deriving Show
+
+data ParsedIssue = ParsedIssue ParseType Owner Repo Int deriving Show
+
+parseIssues :: Repo -> (Repo -> Owner) -> String -> [ParsedIssue]
+parseIssues defRep defOwner = map extract . match prRegex
+  where
+    prRegex :: RegexMaker a CompOption ExecOption String => a
+    prRegex = makeRegex $ "(([^ ]+)/)?([^ ]+)?#([[:digit:]]+)"
+      ++ "|" ++ "https://github.com/([^/ ]+)/([^/ ]+)/(issues|pull)/([[:digit:]]+)"
+
+    extract :: [String] -> ParsedIssue
+    extract [full, _, _, _, "", owner, repo, _, numberStr] =
+      ParsedIssue Link owner repo (read numberStr)
+    extract [full, _, owner, repo, numberStr, _, _, _, _]
+      | null repo = ParsedIssue Hash (defOwner defRep) defRep number
+      | null owner = ParsedIssue Hash (defOwner repo) repo number
+      | otherwise = ParsedIssue Hash owner repo number
+      where number = read numberStr
 
 parsePRs :: String -> String -> [(String, Int)]
 parsePRs def str = parsed
