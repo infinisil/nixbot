@@ -12,6 +12,7 @@ import           Control.Monad.IO.Class    (MonadIO, liftIO)
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.Aeson
+import qualified Data.HashMap.Strict       as H
 import           Data.Maybe
 import           GHC.Generics              (Generic)
 import           Text.Regex.TDFA
@@ -20,8 +21,13 @@ import           Network.HTTP.Client
 import           Network.HTTP.Client.TLS
 import           Network.HTTP.Types.Status
 
+data Pull = Pull
+  { p_merged :: Bool
+  } deriving (Show, Generic)
+
 data Issue = Issue
-  { i_title  :: String
+  { i_pr     :: Maybe String
+  , i_title  :: String
   , i_state  :: String
   , i_url    :: String
   , i_author :: String
@@ -34,19 +40,57 @@ instance FromJSON Issue where
     url <- v .: "html_url"
     user <- v .: "user"
     case user of
-      Object o -> Issue title state url <$> o.: "login"
+      Object o -> do
+        pr <- if H.member "pull_request" v then do
+          pull_request <- v .: "pull_request"
+          case pull_request of
+            Object x -> Just <$> x .: "url"
+            _        -> return Nothing
+
+          else return Nothing
+        Issue pr title state url <$> o.: "login"
       _        -> mzero
 
   parseJSON _ = mzero
 
-fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> ParsedIssue -> m (Maybe Issue)
+instance FromJSON Pull where
+  parseJSON (Object v) = Pull <$> v .: "merged"
+
+data IssueInfo = IssueInfo
+  { issue_state  :: String
+  , issue_url    :: String
+  , issue_author :: String
+  , issue_title  :: String
+  } deriving Show
+
+fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> ParsedIssue -> m (Maybe IssueInfo)
 fetchInfo manager (ParsedIssue _ owner repo number) = do
   $(logInfoSH)$ "Making request to " ++ show request
   response <- liftIO $ httpLbs request manager
   if statusIsSuccessful (responseStatus response)
-    then do
-      $(logInfoSH) "Successfully got info"
-      return $ decode (responseBody response)
+    then case decode (responseBody response) of
+      Nothing -> return Nothing
+      Just issue@Issue { i_state, i_url, i_author, i_title, i_pr } -> do
+        $(logDebugSH)$ issue
+        case i_pr of
+          Nothing -> return $ Just $ defaultIssue
+          Just url -> do
+            $(logDebugSH)$ "Making request to " ++ show url
+            pullResponse <- liftIO $ httpLbs ((parseRequest_ url) { requestHeaders = [("user-agent", "haskell")] }) manager
+            $(logDebugSH)$ "Got body: " ++ show (responseBody pullResponse)
+            case decode (responseBody pullResponse) :: Maybe Pull of
+              Just Pull { p_merged = True } -> return $ Just $ defaultIssue
+                { issue_state = "merged"
+                }
+              _ -> return $ Just $ defaultIssue
+        where
+          defaultIssue = IssueInfo
+            { issue_state = i_state
+            , issue_url = i_url
+            , issue_author = i_author
+            , issue_title = i_title
+            }
+
     else do
       $(logErrorSH)$ "Failed to get info, error: " ++ show (responseBody response)
       return Nothing
@@ -83,11 +127,11 @@ data Settings = Settings
   , prFilter :: ParsedIssue -> Bool
   }
 
-displayIssue :: ParsedIssue -> Issue -> String
-displayIssue parsed Issue { i_title, i_author, i_state, i_url } =
-  let common = " (by " ++ i_author ++ ", " ++ i_state ++ "): " ++ i_title
+displayIssue :: ParsedIssue -> IssueInfo -> String
+displayIssue parsed IssueInfo { issue_title, issue_author, issue_state, issue_url } =
+  let common = " (by " ++ issue_author ++ ", " ++ issue_state ++ "): " ++ issue_title
   in case parsed of
-    (ParsedIssue Hash _ _ _)      -> i_url ++ common
+    (ParsedIssue Hash _ _ _)      -> issue_url ++ common
     (ParsedIssue Link _ _ number) -> "#" ++ show number ++ common
 
 prReplies :: (MonadLogger m, MonadIO m) => Settings -> String -> m [String]
