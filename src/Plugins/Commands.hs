@@ -51,16 +51,33 @@ lookupCommand str map = result
                (str, 0):_ -> Exact . fromJust $ M.lookup str map
                (str, _):_ -> Guess str . fromJust $ M.lookup str map
 
-nixLocate :: MonadIO m => String -> m (Either String [String])
-nixLocate file = do
+data LocateMode = Generic
+                | Bin
+                | Man
+
+argsForMode :: LocateMode -> String -> [String]
+argsForMode Generic arg =
+  [ "--whole-name"
+  , case arg of
+    '/':_ -> arg
+    _     -> '/':arg
+  ]
+argsForMode Bin arg =
+  [ "--whole-name"
+  , "--at-root"
+  , "/bin/" ++ arg
+  ]
+argsForMode Man arg =
+  [ "--regex"
+  , "--at-root"
+  , "--whole-name"
+  , "/share/man/man[0-9]/" ++ arg ++ ".[0-9].gz"
+  ]
+
+nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [String])
+nixLocate mode file = do
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
-    [ "--minimal"
-    , "--top-level"
-    , "--whole-name"
-    , case file of
-        '/':_ -> file
-        _     -> '/':file
-    ] ""
+    ("--minimal":"--top-level":argsForMode mode file) ""
   case exitCode of
     ExitFailure code -> return $ Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
     ExitSuccess -> do
@@ -121,27 +138,37 @@ parseDrvName name = case splitIndex of
   where
     splitIndex = findIndex (uncurry (&&) . bimap (=='-') (not . isAlpha)) . zip name . tail $ name
 
+maxLength = 7
+
+doNixLocate :: MonadIO m => LocateMode -> String -> m String
+doNixLocate mode arg = do
+  attributes <- nixLocate mode arg
+  return $ case attributes of
+    Left error -> error
+    Right packages -> uncurry (++) . bimap
+      (\ps -> if null ps
+        then "Couldn't find any packages"
+        else "Found in packages: " ++ intercalate ", " ps)
+      (\rest -> if null rest
+        then ""
+        else ", and " ++ show (length rest) ++ " more")
+      . splitAt 7 $ packages
 
 commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (nick, ',':command) = case words command of
       [] -> do
-        keys <- gets (\k -> M.keys k)
+        keys <- gets M.keys
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
-        [arg] -> do
-          packages <- nixLocate arg
-          return $ case packages of
-            Left error -> [error]
-            Right [] -> ["Couldn't find any packages"]
-            Right packages -> if length packages <= 7 then ["Found in packages: " ++ intercalate ", " packages]
-              else ["Found in packages: " ++ intercalate ", " (take 7 packages) ++ ", and " ++ show (length packages - 7) ++ " more"]
-        _ -> return [",locate only takes 1 argument"]
-      [ cmd ] -> do
-        result <- gets (lookupCommand cmd)
-        return $ replyLookup nick Nothing result
+        [arg] -> (:[]) <$> doNixLocate Generic arg
+        "bin":[arg] -> (:[]) <$> doNixLocate Bin arg
+        "man":[arg] -> (:[]) <$> doNixLocate Man arg
+        [tp, _] -> return ["Unknown locate type " ++ tp]
+        _ -> return [",locate only takes 1 or 2 arguments"]
+      [ cmd ] -> replyLookup nick Nothing <$> gets (lookupCommand cmd)
       cmd:"=":rest -> case length rest of
           0 -> do
             modify (M.delete cmd)
@@ -149,7 +176,5 @@ commandsPlugin = MyPlugin M.empty trans "commands"
           _ -> do
             modify (M.insert cmd (unwords rest))
             return [ cmd ++ " defined" ]
-      cmd:args -> do
-        result <- gets (lookupCommand cmd)
-        return $ replyLookup nick (Just (unwords args)) result
+      cmd:args -> replyLookup nick (Just (unwords args)) <$> gets (lookupCommand cmd)
     trans (_, _) = return []
