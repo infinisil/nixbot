@@ -2,12 +2,14 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell   #-}
 module Plugins.Pr (prPlugin, Settings(..)) where
 
 import           Plugins
 
 import           Control.Monad             (mzero)
 import           Control.Monad.IO.Class    (MonadIO, liftIO)
+import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Maybe
@@ -37,13 +39,16 @@ instance FromJSON Issue where
 
   parseJSON _ = mzero
 
-fetchInfo :: MonadIO m => Manager -> ParsedIssue -> m (Maybe Issue)
+fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> ParsedIssue -> m (Maybe Issue)
 fetchInfo manager (ParsedIssue _ owner repo number) = do
+  $(logInfoSH)$ "Making request to " ++ show request
   response <- liftIO $ httpLbs request manager
   if statusIsSuccessful (responseStatus response)
-    then return $ decode (responseBody response)
+    then do
+      $(logInfoSH) "Successfully got info"
+      return $ decode (responseBody response)
     else do
-      liftIO $ print $ responseBody response
+      $(logErrorSH)$ "Failed to get info, error: " ++ show (responseBody response)
       return Nothing
   where
     request :: Request
@@ -85,14 +90,14 @@ displayIssue parsed Issue { i_title, i_author, i_state, i_url } =
     (ParsedIssue Hash _ _ _)      -> i_url ++ common
     (ParsedIssue Link _ _ number) -> "#" ++ show number ++ common
 
-prReplies :: MonadIO m => Settings -> String -> m [String]
+prReplies :: (MonadLogger m, MonadIO m) => Settings -> String -> m [String]
 prReplies settings@Settings { prFilter } input = do
   manager <- liftIO $ newManager tlsManagerSettings
   fmap (uncurry displayIssue) . catMaybes . fmap sequence . zip filtered <$> mapM (fetchInfo manager) filtered
   where
     filtered = filter prFilter $ parseIssues settings input
 
-prPlugin :: MonadIO m => Settings -> MyPlugin () m
+prPlugin :: (MonadLogger m, MonadIO m) => Settings -> MyPlugin () m
 prPlugin settings = MyPlugin () trans "pr"
   where
     trans (nick, msg) = prReplies settings msg
