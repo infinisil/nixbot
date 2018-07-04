@@ -199,7 +199,9 @@ prPlug = prPlugin Settings
       "hnix" -> "haskell-nix"
       _ -> "NixOS"
   , defRepo = "nixpkgs"
-  , prFilter = const True
+  , prFilter = \case
+      ParsedIssue Hash "NixOS" "nixpkgs" number -> number >= 10
+      _ -> True
   } `onDomain` nixOS
 
 

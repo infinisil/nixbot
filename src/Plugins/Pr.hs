@@ -3,7 +3,7 @@
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell   #-}
-module Plugins.Pr (prPlugin, Settings(..)) where
+module Plugins.Pr (prPlugin, Settings(..), ParsedIssue(..), ParseType(..)) where
 
 import           Plugins
 
