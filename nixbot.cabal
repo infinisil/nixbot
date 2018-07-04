@@ -55,3 +55,6 @@ executable nixbot
                      , hnix
                      , versions
                      , either
+                     , http-client
+                     , http-types
+                     , http-client-tls
