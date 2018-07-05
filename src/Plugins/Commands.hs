@@ -170,8 +170,12 @@ commandsPlugin = MyPlugin M.empty trans "commands"
       [ cmd ] -> replyLookup nick Nothing <$> gets (lookupCommand cmd)
       cmd:"=":rest -> case length rest of
           0 -> do
-            modify (M.delete cmd)
-            return [ cmd ++ " undefined" ]
+            mvalue <- gets $ M.lookup cmd
+            case mvalue of
+              Nothing -> return [ cmd ++ " is already undefined" ]
+              Just value -> do
+                modify (M.delete cmd)
+                return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
           _ -> do
             modify (M.insert cmd (unwords rest))
             return [ cmd ++ " defined" ]
