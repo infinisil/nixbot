@@ -53,6 +53,7 @@ lookupCommand str map = result
                (str, _):_ -> Guess str . fromJust $ M.lookup str map
 
 data LocateMode = Generic
+                | Bin
                 | Man
 
 argsForMode :: LocateMode -> String -> [String]
@@ -60,6 +61,10 @@ argsForMode Generic arg =
   [ case arg of
     '/':_ -> arg
     _     -> '/':arg
+  ]
+argsForMode Bin arg =
+  [ "--at-root"
+  , "/bin/" ++ arg
   ]
 argsForMode Man arg =
   [ "--regex"
@@ -162,8 +167,9 @@ commandsPlugin = MyPlugin M.empty trans "commands"
         keys <- gets $ M.keys . M.insert "locate" ""
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
-        [] -> return ["Use ,locate <filename> to find packages containing such a file. ,locate man <name> can find man pages. Powered by nix-index (local installation recommended)."]
+        [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
         [arg] -> (:[]) <$> doNixLocate Generic arg
+        "bin":[arg] -> (:[]) <$> doNixLocate Bin arg
         "man":[arg] -> (:[]) <$> doNixLocate Man arg
         [tp, _] -> return ["Unknown locate type " ++ tp]
         _ -> return [",locate only takes 1 or 2 arguments"]
