@@ -159,7 +159,7 @@ commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (nick, ',':command) = case words command of
       [] -> do
-        keys <- gets M.keys
+        keys <- gets $ M.keys . M.insert "locate" ""
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. ,locate man <name> can find man pages. Powered by nix-index (local installation recommended)."]
