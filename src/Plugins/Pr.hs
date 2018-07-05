@@ -40,10 +40,10 @@ fetchInfo manager pissue@(ParsedIssue parseType owner repo number) = do
   result <- liftIO . executeRequest' $ issueR owner' repo' number'
   case result of
     Left error -> do
-      $(logWarnSH)$ "Got error from github request: " ++ show error
+      $(logWarnSH)$ "Got error from github request (might indicate that this issue doesn't exist): " ++ show error
       return Nothing
     Right issue@Issue { issueHtmlUrl = Nothing } -> do
-      $(logWarnSH)$ "Issue didn't have an url, got: " ++ show issue
+      $(logWarnSH)$ "Issue didn't have an url for some reason: " ++ show issue
       return Nothing
     Right issue@Issue { issueHtmlUrl = Just url } -> Just <$> do
       state <- case (issuePullRequest issue, issueState issue) of
@@ -56,10 +56,10 @@ fetchInfo manager pissue@(ParsedIssue parseType owner repo number) = do
         _ -> return showState
       return $ prefix ++ " (by " ++ author ++ ", " ++ state ++ "): " ++ title
       where
-        author = show . simpleUserLogin . issueUser $ issue
-        title = show . issueTitle $ issue
+        author = Text.unpack . untagName . simpleUserLogin . issueUser $ issue
+        title = Text.unpack . issueTitle $ issue
         prefix = case parseType of
-          Hash -> show url
+          Hash -> Text.unpack . getUrl $ url
           Link -> "#" ++ show number
         showState = case issueState issue of
           StateClosed -> "closed"
