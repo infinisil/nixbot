@@ -35,16 +35,20 @@ data IssueInfo = IssueInfo
   } deriving Show
 
 fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> ParsedIssue -> m (Maybe String)
-fetchInfo manager (ParsedIssue parseType owner repo number) = do
+fetchInfo manager pissue@(ParsedIssue parseType owner repo number) = do
+  $(logInfoSH)$ "Fetching info for issue " ++ owner ++ "/" ++ repo ++ "#" ++ show number
   result <- liftIO . executeRequest' $ issueR owner' repo' number'
   case result of
     Left error -> do
       $(logWarnSH)$ "Got error from github request: " ++ show error
       return Nothing
-    Right Issue { issueHtmlUrl = Nothing } -> return Nothing
+    Right issue@Issue { issueHtmlUrl = Nothing } -> do
+      $(logWarnSH)$ "Issue didn't have an url, got: " ++ show issue
+      return Nothing
     Right issue@Issue { issueHtmlUrl = Just url } -> Just <$> do
       state <- case (issuePullRequest issue, issueState issue) of
         (Just _, StateClosed) -> do
+          $(logInfoSH)$ "This issue is a PR and closed, fetching to see if it's merged"
           pullResult <- liftIO $ executeRequest' $ pullRequestR owner' repo' number'
           return $ case pullResult of
             Right PullRequest { pullRequestMerged = True } -> "merged"
