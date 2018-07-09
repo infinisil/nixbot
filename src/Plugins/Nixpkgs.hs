@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.Nixpkgs ( nixpkgsPlugin
                        ) where
@@ -5,34 +6,48 @@ module Plugins.Nixpkgs ( nixpkgsPlugin
 import           Control.Monad.IO.Class          (MonadIO, liftIO)
 import           Control.Monad.State             (StateT)
 import           Control.Monad.State.Class
+import           Data.List
 import           Data.Maybe
 import           Data.Text                       (Text)
 import qualified Data.Text                       as Text
+import qualified Data.Text.IO                    as TIO
+import           GitHub
+import           GitHub.Data.Name
+import qualified GitHub.Endpoints.Repos.Commits  as C
 import qualified GitHub.Endpoints.Repos.Contents as R
 import           Text.Regex.TDFA                 ((=~))
 
+import           Data.Monoid                     ((<>))
 import           Plugins
 
 
 parseNixpkgs :: String -> [String]
-parseNixpkgs s = map (!! 1) (s =~ ("<nixpkgs/([^[:space:]]+)+>" :: String))
+parseNixpkgs s = map (!! 1) (s =~ ("<([^ ]+)>" :: String))
 
-getNixpkgs :: MonadIO m => String -> m (Maybe String)
+getNixpkgs :: MonadIO m => Text -> m (Maybe Text)
 getNixpkgs s = do
-  liftIO.putStrLn $ "Trying to get contents for " ++ s
-  contents <- liftIO $ R.contentsFor "NixOS" "nixpkgs" (Text.pack s) (Just "heads/master")
-  case contents of
+  c <- liftIO $ C.commit "NixOS" "nixpkgs" "HEAD"
+  case c of
     Left error -> do
       liftIO $ print error
       return Nothing
-    Right contents ->
-      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/master/" ++ s
+    Right Commit { commitSha = N sha } ->
+      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> "/" <> s
 
-nixpkgs :: MonadIO m => String -> m [String]
-nixpkgs s = fmap catMaybes . mapM getNixpkgs $ parseNixpkgs s
+initCache :: MonadIO m => m [Text]
+initCache = liftIO $ Text.lines <$> TIO.readFile "filecache"
 
-nixpkgsPlugin :: MonadIO m => MyPlugin () m
-nixpkgsPlugin = MyPlugin () trans "nixpkgs"
+findPath :: [Text] -> Text -> Maybe Text
+findPath cache input = find (Text.isSuffixOf input) cache
+
+nixpkgs :: MonadIO m => [Text] -> String -> m [String]
+nixpkgs cache s = do
+  let searches = mapMaybe (findPath cache . Text.pack) . filter (/="default.nix") $ parseNixpkgs s
+  results <- catMaybes <$> mapM getNixpkgs searches
+  return $ map Text.unpack results
+
+nixpkgsPlugin :: MonadIO m => [Text] -> MyPlugin () m
+nixpkgsPlugin cache = MyPlugin () trans "nixpkgs"
   where
-    trans (nick, msg) = liftIO $ nixpkgs msg
+    trans (nick, msg) = nixpkgs cache msg
 

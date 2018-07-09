@@ -49,6 +49,7 @@ import           Data.Monoid                     ((<>))
 import           Data.Ord                        (comparing)
 import           Data.Text                       (Text, pack, unpack)
 import qualified Data.Text                       as Text
+import qualified Data.Text.IO                    as TIO
 import           GHC.Generics                    (Generic)
 import qualified GitHub.Endpoints.Repos.Contents as R
 import qualified Network.AMQP                    as A
@@ -143,7 +144,8 @@ start = do
   $(logDebug) "disabled nowait"
 
   cfg <- reader config
-  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage cfg chan)
+  cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
+  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage cache cfg chan)
   $(logDebug) $ "Started consumer with tag " <> pack (show tag)
 
   var <- liftIO newEmptyTMVarIO
@@ -153,7 +155,7 @@ start = do
 
 onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
 onInterrupt e = do
-  $(logInfo) "Interrupted, closing connection"
+  $(logInfoSH)$ "Interrupted, closing connection" ++ show e
   conn <- reader connection
   liftIO $ A.closeConnection conn
 
@@ -168,8 +170,8 @@ publishMessage chan msg = do
   putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
   return intMb
 
-onMessage :: Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
-onMessage cfg chan (m, e) =
+onMessage :: [Text] -> Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
+onMessage cache cfg chan (m, e) =
   case decode $ A.msgBody m :: Maybe Input of
     Nothing -> do
       putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
@@ -177,14 +179,14 @@ onMessage cfg chan (m, e) =
     Just msg -> do
       putStrLn $ "Valid message " ++ show msg
       forkIO $ do
-        replyBodies <- reply cfg msg
+        replyBodies <- reply cache cfg msg
         putStrLn $ "got replies: " ++ concatMap show replyBodies
         sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b "privmsg"))
       A.ackEnv e
 
-reply :: Config -> Input -> IO [String]
-reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = newPlugins channel
+reply :: [Text] -> Config -> Input -> IO [String]
+reply cache cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
+  let chanPlugs = newPlugins cache channel
   replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
   return $ take 3 $ concat replies
 
@@ -205,51 +207,51 @@ prPlug = prPlugin Settings
   } `onDomain` nixOS
 
 
-newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ PluginInput -> m [String] ]
-newPlugins "#nixos" = [ karmaPlugin `onDomain` nixOS
+newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
+newPlugins cache "#nixos" = [ karmaPlugin `onDomain` nixOS
                       , prPlug
                       , commandsPlugin `onDomain` nixOS
                       , nixreplPlugin `onDomain` "bottest"
-                      , nixpkgsPlugin `onDomain` "bottest"
+                      , nixpkgsPlugin cache `onDomain` "bottest"
                       ]
-newPlugins "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
+newPlugins cache "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
                       , prPlug
                       , commandsPlugin `onDomain` nixOS
                       , nixreplPlugin `onDomain` "bottest"
-                      , nixpkgsPlugin `onDomain` "bottest"
+                      , nixpkgsPlugin cache `onDomain` "bottest"
                       ]
-newPlugins "#bottest" = [ karmaPlugin `onDomain` nixOS
+newPlugins cache "#bottest" = [ karmaPlugin `onDomain` nixOS
                         , prPlug
                         , helloPlugin `onDomain` nixOS
                         , commandsPlugin `onDomain` nixOS
-                        , nixpkgsPlugin `onDomain` nixOS
+                        , nixpkgsPlugin cache `onDomain` nixOS
                         , nixreplPlugin `onDomain` "bottest"
                         ]
-newPlugins "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
+newPlugins _ "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
                            , prPlug
                            , helloPlugin `onDomain` nixOS
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "bottest"
                            ]
 
-newPlugins "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
+newPlugins _ "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
                            , prPlug
                            , commandsPlugin `onDomain` nixOS
                            , nixreplPlugin `onDomain` "bottest"
                            ]
-newPlugins "#nix-lang" = [ karmaPlugin `onDomain` nixOS
+newPlugins cache "#nix-lang" = [ karmaPlugin `onDomain` nixOS
                          , prPlug
                          , commandsPlugin `onDomain` "nixlang"
                          , nixreplPlugin `onDomain` "nixlang"
-                         , nixpkgsPlugin `onDomain` nixOS
+                         , nixpkgsPlugin cache `onDomain` nixOS
                          ]
-newPlugins ('#':_) = []
-newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
+newPlugins _ ('#':_) = []
+newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
                   , prPlug
-                  , nixpkgsPlugin `onDomain` ("users/" ++ nick)
+                  , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
                   ]
 
 -- Domains
