@@ -22,7 +22,7 @@ import           Plugins
 
 
 parseNixpkgs :: String -> [String]
-parseNixpkgs s = map (!! 1) (s =~ ("<([^ ]+)>" :: String))
+parseNixpkgs s = map (!! 1) (s =~ ("<([^ <>]+)>" :: String))
 
 getNixpkgs :: MonadIO m => Text -> m (Maybe Text)
 getNixpkgs s = do
