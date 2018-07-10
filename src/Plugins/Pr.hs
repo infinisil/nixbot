@@ -80,7 +80,7 @@ parseIssues Settings { defOwner, defRepo } = map extract . match prRegex
   where
     prRegex :: RegexMaker a CompOption ExecOption String => a
     prRegex = makeRegex $ "(([^ ]+)/)?([^ ]+)?#([[:digit:]]+)"
-      ++ "|" ++ "https://github.com/([^/ ]+)/([^/ ]+)/(issues|pull)/([[:digit:]]+)([^\\#0-9]|\\')"
+      ++ "|" ++ "https://github.com/([^/ ]+)/([^/ ]+)/(issues|pull)/([[:digit:]]+)([^#[:digit:]]|\\')"
 
     extract :: [String] -> ParsedIssue
     extract [full, _, _, _, "", owner, repo, _, numberStr, _] =
