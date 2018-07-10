@@ -42,7 +42,7 @@ findPath cache input = find (Text.isSuffixOf input) cache
 
 nixpkgs :: MonadIO m => [Text] -> String -> m [String]
 nixpkgs cache s = do
-  let searches = mapMaybe (findPath cache . Text.pack) . filter (/="default.nix") $ parseNixpkgs s
+  let searches = mapMaybe (findPath cache . Text.pack) $ parseNixpkgs s
   results <- catMaybes <$> mapM getNixpkgs searches
   return $ map Text.unpack results
 
