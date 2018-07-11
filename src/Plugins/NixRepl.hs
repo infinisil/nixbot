@@ -125,23 +125,23 @@ handle (Command "v" _) = do
 handle (Command "s" _) = do
   scopes <- gets scopes
   return . Just $ "All scopes: " ++ intercalate ", " scopes
-handle (Command "d" [lit]) = do
-  litDefined <- gets $ M.member lit . variables
-  if litDefined
-    then do
-      modify (\s -> s { variables = M.delete lit (variables s) })
-      return . Just $ "undefined " ++ lit
-    else return . Just $ lit ++ " is not defined"
-handle (Command "d" _) = return $ Just ":d takes a single argument"
-handle (Command "r" ["s"]) = do
-  modify (\s -> s { scopes = [] })
-  return $ Just "Scopes got reset"
-handle (Command "r" ["v"]) = do
-  modify (\s -> s { variables = M.empty })
-  return $ Just "Variables got reset"
-handle (Command "r" _) = do
-  put $ NixState M.empty []
-  return $ Just "State got reset"
+--handle (Command "d" [lit]) = do
+--  litDefined <- gets $ M.member lit . variables
+--  if litDefined
+--    then do
+--      modify (\s -> s { variables = M.delete lit (variables s) })
+--      return . Just $ "undefined " ++ lit
+--    else return . Just $ lit ++ " is not defined"
+--handle (Command "d" _) = return $ Just ":d takes a single argument"
+--handle (Command "r" ["s"]) = do
+--  modify (\s -> s { scopes = [] })
+--  return $ Just "Scopes got reset"
+--handle (Command "r" ["v"]) = do
+--  modify (\s -> s { variables = M.empty })
+--  return $ Just "Variables got reset"
+--handle (Command "r" _) = do
+--  put $ NixState M.empty []
+--  return $ Just "State got reset"
 handle (Command "u" _) = do
   updateNixpkgs
   return $ Just "Updated nixpkgs"
