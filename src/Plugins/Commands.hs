@@ -164,7 +164,7 @@ commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (nick, ',':command) = case words command of
       [] -> do
-        keys <- gets $ M.keys . M.insert "locate" ""
+        keys <- gets $ M.keys . M.insert "tell" "" . M.insert "locate" ""
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
@@ -173,6 +173,7 @@ commandsPlugin = MyPlugin M.empty trans "commands"
         "man":[arg] -> (:[]) <$> doNixLocate Man arg
         [tp, _] -> return ["Unknown locate type " ++ tp]
         _ -> return [",locate only takes 1 or 2 arguments"]
+      "tell":args -> return []
       [ cmd ] -> replyLookup nick Nothing <$> gets (lookupCommand cmd)
       cmd:"=":rest -> case length rest of
           0 -> do

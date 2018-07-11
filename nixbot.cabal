@@ -25,6 +25,7 @@ executable nixbot
                        Plugins.Nixpkgs
                        Plugins.Pr
                        Plugins.NixRepl
+                       Plugins.Tell
                        NixEval
   build-depends:       base >= 4.7 && < 5
                      , aeson
@@ -58,3 +59,5 @@ executable nixbot
                      , http-client
                      , http-types
                      , http-client-tls
+                     , store
+                     , time

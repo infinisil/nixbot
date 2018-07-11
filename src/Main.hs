@@ -18,6 +18,7 @@ import           Plugins.Karma
 import           Plugins.Nixpkgs
 import           Plugins.NixRepl
 import           Plugins.Pr
+import           Plugins.Tell
 
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
@@ -206,45 +207,22 @@ prPlug = prPlugin Settings
       _ -> True
   } `onDomain` nixOS
 
+defaultPlugins cache =
+  [ karmaPlugin `onDomain` nixOS
+  , prPlug
+  , commandsPlugin `onDomain` nixOS
+  , nixreplPlugin `onDomain` "bottest"
+  , nixpkgsPlugin cache `onDomain` "bottest"
+  , tellPlugin `onDomain` nixOS
+  ]
 
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
-newPlugins cache "#nixos" = [ karmaPlugin `onDomain` nixOS
-                      , prPlug
-                      , commandsPlugin `onDomain` nixOS
-                      , nixreplPlugin `onDomain` "bottest"
-                      , nixpkgsPlugin cache `onDomain` "bottest"
-                      ]
-newPlugins cache "#nixos-chat" = [ karmaPlugin `onDomain` nixOS
-                      , prPlug
-                      , commandsPlugin `onDomain` nixOS
-                      , nixreplPlugin `onDomain` "bottest"
-                      , nixpkgsPlugin cache `onDomain` "bottest"
-                      ]
-newPlugins cache "#bottest" = [ karmaPlugin `onDomain` nixOS
-                        , prPlug
-                        , helloPlugin `onDomain` nixOS
-                        , commandsPlugin `onDomain` nixOS
-                        , nixpkgsPlugin cache `onDomain` nixOS
-                        , nixreplPlugin `onDomain` "bottest"
-                        ]
-newPlugins _ "#nixos-borg" = [ karmaPlugin `onDomain` nixOS
-                           , prPlug
-                           , helloPlugin `onDomain` nixOS
-                           , commandsPlugin `onDomain` nixOS
-                           , nixreplPlugin `onDomain` "bottest"
-                           ]
-
-newPlugins _ "#nixos-dev" = [ karmaPlugin `onDomain` nixOS
-                           , prPlug
-                           , commandsPlugin `onDomain` nixOS
-                           , nixreplPlugin `onDomain` "bottest"
-                           ]
-newPlugins cache "#nix-lang" = [ karmaPlugin `onDomain` nixOS
-                         , prPlug
-                         , commandsPlugin `onDomain` "nixlang"
-                         , nixreplPlugin `onDomain` "nixlang"
-                         , nixpkgsPlugin cache `onDomain` nixOS
-                         ]
+newPlugins cache "#nixos" = defaultPlugins cache
+newPlugins cache "#nixos-chat" = defaultPlugins cache
+newPlugins cache "#bottest" = defaultPlugins cache
+newPlugins cache "#nixos-borg" = defaultPlugins cache
+newPlugins cache "#nixos-dev" = defaultPlugins cache
+newPlugins cache "#nix-lang" = defaultPlugins cache
 newPlugins _ ('#':_) = []
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
