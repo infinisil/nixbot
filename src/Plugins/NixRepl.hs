@@ -173,7 +173,7 @@ nixreplPlugin :: (MonadReader Config m, MonadIO m, MonadLogger m, Monad m) => My
 nixreplPlugin = MyPlugin initialState trans "nixrepl"
   where
     initialState = NixState M.empty []
-    trans (_, '>':' ':nixString) = case P.runParser parser "(input)" nixString of
+    trans (chan, _, '>':' ':nixString) = case P.runParser parser "(input)" nixString of
       Right instruction -> maybeToList <$> handle instruction
       Left _            -> return []
     trans _ = return []

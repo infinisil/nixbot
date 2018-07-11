@@ -108,4 +108,4 @@ prReplies settings@Settings { prFilter } input = do
 prPlugin :: (MonadLogger m, MonadIO m) => Settings -> MyPlugin () m
 prPlugin settings = MyPlugin () trans "pr"
   where
-    trans (nick, msg) = prReplies settings msg
+    trans (chan, nick, msg) = prReplies settings msg

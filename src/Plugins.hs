@@ -15,7 +15,7 @@ import           Text.Read                 (readMaybe)
 import           Config
 
 
-type PluginInput = (String, String)
+type PluginInput = (String, String, String)
 data MyPlugin s m = MyPlugin { initState :: s
                              , transf    :: PluginInput -> StateT s m [String]
                              , name      :: String

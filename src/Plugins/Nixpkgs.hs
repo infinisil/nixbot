@@ -49,5 +49,5 @@ nixpkgs cache s = do
 nixpkgsPlugin :: MonadIO m => [Text] -> MyPlugin () m
 nixpkgsPlugin cache = MyPlugin () trans "nixpkgs"
   where
-    trans (nick, msg) = nixpkgs cache msg
+    trans (chan, nick, msg) = nixpkgs cache msg
 

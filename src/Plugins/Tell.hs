@@ -13,10 +13,12 @@ import qualified Data.Map               as M
 import           Data.Time
 import           Data.Time.Clock.POSIX
 
+type Chan = String
 type Nick = String
 
 data Entry = Entry
   { from :: Nick
+  , chan :: String
   , msg  :: String
   , time :: UTCTime
   } deriving (Show, Read)
@@ -47,12 +49,12 @@ formatEntry now Entry { from, msg, time } = ago ++ " ago <" ++ from ++ "> " ++ m
   where ago = showDuration (diffUTCTime now time)
 
 
-tellPlugin :: MonadIO m => MyPlugin (Map Nick [Entry]) m
+tellPlugin :: MonadIO m => MyPlugin (Map (Chan, Nick) [Entry]) m
 tellPlugin = MyPlugin M.empty trans "tell"
   where
-    trans (nick, input) = do
-      inbox <- gets $ M.findWithDefault [] nick
-      modify $ M.insert nick []
+    trans (chan, nick, input) = do
+      inbox <- gets $ M.findWithDefault [] (chan, nick)
+      modify $ M.delete (chan, nick)
       time <- liftIO getCurrentTime
       let messages = map (formatEntry time) inbox
       tell <- case words input of
@@ -60,10 +62,11 @@ tellPlugin = MyPlugin M.empty trans "tell"
         ",tell":target:rest -> do
           let entry = Entry {
                   from = nick
+                , chan = chan
                 , msg = unwords rest
                 , time = time
                 }
-          modify $ M.insertWith (++) target [entry]
+          modify $ M.insertWith (++) (chan, target) [entry]
           return ["I'll pass that on to " ++ target]
         _ -> return []
       return $ map (\m -> nick ++ ": " ++ m) $ messages ++ tell

@@ -162,7 +162,7 @@ doNixLocate mode arg = do
 commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
-    trans (nick, ',':command) = case words command of
+    trans (chan, nick, ',':command) = case words command of
       [] -> do
         keys <- gets $ M.keys . M.insert "tell" "" . M.insert "locate" ""
         return ["All commands: " ++ unwords keys]
@@ -187,4 +187,4 @@ commandsPlugin = MyPlugin M.empty trans "commands"
             modify (M.insert cmd (unwords rest))
             return [ cmd ++ " defined" ]
       cmd:args -> replyLookup nick (Just (unwords args)) <$> gets (lookupCommand cmd)
-    trans (_, _) = return []
+    trans (_, _, _) = return []

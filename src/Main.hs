@@ -188,7 +188,7 @@ onMessage cache cfg chan (m, e) =
 reply :: [Text] -> Config -> Input -> IO [String]
 reply cache cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
   let chanPlugs = newPlugins cache channel
-  replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (nick, msg)) chanPlugs
+  replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (channel, nick, msg)) chanPlugs
   return $ take 3 $ concat replies
 
 prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]

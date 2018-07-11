@@ -15,7 +15,7 @@ karmaRegex = "\\`[[:space:]]*([^[:space:]]+)[[:space:]]*\\+\\+\\'"
 karmaPlugin :: Monad m => MyPlugin (M.Map String Int) m
 karmaPlugin = MyPlugin M.empty trans "karma"
   where
-    trans (nick, msg) =
+    trans (chan, nick, msg) =
       case matches of
         Nothing   -> return []
         Just user -> do
