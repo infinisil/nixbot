@@ -34,8 +34,8 @@ data IssueInfo = IssueInfo
   , issue_title  :: String
   } deriving Show
 
-fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> ParsedIssue -> m (Maybe String)
-fetchInfo manager pissue@(ParsedIssue parseType owner repo number) = do
+fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> Settings -> ParsedIssue -> m (Maybe String)
+fetchInfo manager settings@Settings { defOwner, defRepo } pissue@(ParsedIssue parseType owner repo number) = do
   $(logInfoSH)$ "Fetching info for issue " ++ owner ++ "/" ++ repo ++ "#" ++ show number
   result <- liftIO . executeRequest' $ issueR owner' repo' number'
   case result of
@@ -60,7 +60,10 @@ fetchInfo manager pissue@(ParsedIssue parseType owner repo number) = do
         title = Text.unpack . issueTitle $ issue
         prefix = case parseType of
           Hash -> Text.unpack . getUrl $ url
-          Link -> "#" ++ show number
+          Link -> case (defOwner repo == owner, defRepo == repo) of
+            (False, _)    -> owner ++ "/" ++ repo ++ "#" ++ show number
+            (True, False) -> repo ++ "#" ++ show number
+            (True, True)  -> "#" ++ show number
         showState = case issueState issue of
           StateClosed -> "closed"
           StateOpen   -> "open"
@@ -101,7 +104,7 @@ data Settings = Settings
 prReplies :: (MonadLogger m, MonadIO m) => Settings -> String -> m [String]
 prReplies settings@Settings { prFilter } input = do
   manager <- liftIO $ newManager tlsManagerSettings
-  catMaybes <$> mapM (fetchInfo manager) filtered
+  catMaybes <$> mapM (fetchInfo manager settings) filtered
   where
     filtered = filter prFilter $ parseIssues settings input
 
