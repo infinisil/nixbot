@@ -32,7 +32,7 @@ getNixpkgs s = do
       liftIO $ print error
       return Nothing
     Right Commit { commitSha = N sha } ->
-      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> "/" <> s
+      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> s
 
 initCache :: MonadIO m => m [Text]
 initCache = liftIO $ Text.lines <$> TIO.readFile "filecache"
@@ -40,9 +40,12 @@ initCache = liftIO $ Text.lines <$> TIO.readFile "filecache"
 findPath :: [Text] -> Text -> Maybe Text
 findPath cache input = find (Text.isSuffixOf input) cache
 
+prependSlash :: Text -> Text
+prependSlash = ("/"<>) . snd . Text.break (/='/')
+
 nixpkgs :: MonadIO m => [Text] -> String -> m [String]
 nixpkgs cache s = do
-  let searches = mapMaybe (findPath cache . Text.pack) $ parseNixpkgs s
+  let searches = mapMaybe (findPath cache . prependSlash . Text.pack) $ parseNixpkgs s
   results <- catMaybes <$> mapM getNixpkgs searches
   return $ map Text.unpack results
 
