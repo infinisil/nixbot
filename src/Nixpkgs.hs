@@ -54,7 +54,7 @@ data NixpkgsState = NixpkgsState
   , channels  :: Map String (Commit, Maybe FilePath)
   } deriving Show
 
-class MonadNixpkgs m where
+class Monad m => MonadNixpkgs m where
   updateNixpkgs :: m ()
   nixpkgsState :: m NixpkgsState
   nixpkgsPath :: m [String]
@@ -130,7 +130,7 @@ git args = liftIO $ (do
     liftIO $ print (e :: SomeException)
     return "failed"
 
-newtype NixpkgsT m a = NixpkgsT (StateT NixpkgsState (ReaderT FilePath m) a) deriving (Functor, Applicative, Monad)
+newtype NixpkgsT m a = NixpkgsT (StateT NixpkgsState (ReaderT FilePath m) a) deriving (Functor, Applicative, Monad, MonadIO)
 
 runNixpkgsT :: MonadIO m => NixpkgsT m a -> m a
 runNixpkgsT (NixpkgsT r) = do
@@ -142,23 +142,20 @@ runNixpkgsT (NixpkgsT r) = do
 instance MonadTrans NixpkgsT where
   lift = NixpkgsT . lift . lift
 
-instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (StateT s m) where
+instance MonadNixpkgs m => MonadNixpkgs (StateT s m) where
   updateNixpkgs = lift updateNixpkgs
   nixpkgsState = lift nixpkgsState
   nixpkgsPath = lift nixpkgsPath
 
-instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (LoggingT m) where
+instance MonadNixpkgs m => MonadNixpkgs (LoggingT m) where
   updateNixpkgs = lift updateNixpkgs
   nixpkgsState = lift nixpkgsState
   nixpkgsPath = lift nixpkgsPath
 
-instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (ReaderT r m) where
+instance MonadNixpkgs m => MonadNixpkgs (ReaderT r m) where
   updateNixpkgs = lift updateNixpkgs
   nixpkgsState = lift nixpkgsState
   nixpkgsPath = lift nixpkgsPath
-
-instance MonadIO m => MonadIO (NixpkgsT m) where
-  liftIO i = NixpkgsT $ lift $ lift $ liftIO i
 
 instance MonadIO m => MonadNixpkgs (NixpkgsT m) where
   updateNixpkgs = NixpkgsT $ do
