@@ -7,17 +7,19 @@ import           Control.Monad.IO.Class          (MonadIO, liftIO)
 import           Control.Monad.State             (StateT)
 import           Control.Monad.State.Class
 import           Data.List
+import qualified Data.Map                        as Map
 import           Data.Maybe
 import           Data.Text                       (Text)
 import qualified Data.Text                       as Text
 import qualified Data.Text.IO                    as TIO
-import           GitHub
+import qualified GitHub                          as GH
 import           GitHub.Data.Name
 import qualified GitHub.Endpoints.Repos.Commits  as C
 import qualified GitHub.Endpoints.Repos.Contents as R
 import           Text.Regex.TDFA                 ((=~))
 
 import           Data.Monoid                     ((<>))
+import           Nixpkgs
 import           Plugins
 
 
@@ -31,26 +33,34 @@ getNixpkgs s = do
     Left error -> do
       liftIO $ print error
       return Nothing
-    Right Commit { commitSha = N sha } ->
+    Right GH.Commit { GH.commitSha = N sha } ->
       return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> s
 
-initCache :: MonadIO m => m [Text]
-initCache = liftIO $ Text.lines <$> TIO.readFile "filecache"
-
-findPath :: [Text] -> Text -> Maybe Text
-findPath cache input = find (Text.isSuffixOf input) cache
+findPath :: (Monad m, MonadNixpkgs m) => Text -> m (Maybe Text)
+findPath input = do
+  let actualInput = reverse $ Text.split (=='/') input
+  NixpkgsState { fileIndex } <- nixpkgsState
+  let result = find (isPrefixOf actualInput) (map fst fileIndex)
+  --find (Text.isSuffixOf input) cache
+  return $ Text.intercalate "/" . reverse <$> result
 
 prependSlash :: Text -> Text
 prependSlash = ("/"<>) . snd . Text.break (/='/')
 
-nixpkgs :: MonadIO m => [Text] -> String -> m [String]
-nixpkgs cache s = do
-  let searches = mapMaybe (findPath cache . prependSlash . Text.pack) $ parseNixpkgs s
-  results <- catMaybes <$> mapM getNixpkgs searches
-  return $ map Text.unpack results
 
-nixpkgsPlugin :: MonadIO m => [Text] -> MyPlugin () m
-nixpkgsPlugin cache = MyPlugin () trans "nixpkgs"
+tryNixpkgs :: (MonadNixpkgs m, Monad m) => String -> m (Maybe String)
+tryNixpkgs input = do
+  result <- findPath (Text.pack input)
+  return $ Text.unpack <$> result
+
+nixpkgs :: (MonadNixpkgs m, MonadIO m) => String -> m [String]
+nixpkgs s = do
+  found <- catMaybes <$> mapM tryNixpkgs (parseNixpkgs s)
+  NixpkgsState { master = Commit { sha } } <- nixpkgsState
+  return $ map (\file -> "https://github.com/NixOS/nixpkgs/tree/" ++ take 7 sha ++ "/" ++ file) found
+
+nixpkgsPlugin :: (MonadNixpkgs m, MonadIO m) => MyPlugin () m
+nixpkgsPlugin = MyPlugin () trans "nixpkgs"
   where
-    trans (chan, nick, msg) = nixpkgs cache msg
+    trans (chan, nick, msg) = nixpkgs msg
 

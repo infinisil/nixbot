@@ -4543,6 +4543,25 @@ inherit (pkgs.xorg) libXrender;};
            description = "Useful concurrent combinators";
            license = stdenv.lib.licenses.mit;
          }) {};
+      "async-pool" = callPackage
+        ({ mkDerivation, async, base, containers, fgl, monad-control
+         , stdenv, stm, transformers, transformers-base
+         }:
+         mkDerivation {
+           pname = "async-pool";
+           version = "0.9.0.2";
+           sha256 = "e0159d13c974162ac3c06ade10ed319ae05d6b1b07e8e87ff4f8b40f9047e7f1";
+           revision = "1";
+           editedCabalFile = "0w3l3lbnfdm9ihp7pfda4sf1y1cqpc6g6q6wjzafdi088l3lklkn";
+           libraryHaskellDepends = [
+             async base containers fgl monad-control stm transformers
+             transformers-base
+           ];
+           doHaddock = false;
+           doCheck = false;
+           description = "A modified version of async that supports worker groups and many-to-many task dependencies";
+           license = stdenv.lib.licenses.mit;
+         }) {};
       "async-refresh" = callPackage
         ({ mkDerivation, base, formatting, lifted-async, microlens
          , microlens-th, monad-control, monad-logger, safe-exceptions
@@ -26084,9 +26103,9 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            license = stdenv.lib.licenses.bsd3;
          }) {};
       "nixbot" = callPackage
-        ({ mkDerivation, aeson, amqp, base, bytestring, containers
-         , data-default, directory, edit-distance, either, file-embed
-         , filepath, github, hnix, htoml-megaparsec, http-client
+        ({ mkDerivation, aeson, amqp, async-pool, base, bytestring
+         , containers, data-default, directory, edit-distance, either
+         , file-embed, filepath, github, hnix, htoml-megaparsec, http-client
          , http-client-tls, http-conduit, http-types, megaparsec
          , monad-logger, monad-stm, mtl, network, optparse-applicative
          , process, regex-tdfa, stdenv, stm, store, strict, template-haskell
@@ -26099,8 +26118,8 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            isLibrary = false;
            isExecutable = true;
            executableHaskellDepends = [
-             aeson amqp base bytestring containers data-default directory
-             edit-distance either file-embed filepath github hnix
+             aeson amqp async-pool base bytestring containers data-default
+             directory edit-distance either file-embed filepath github hnix
              htoml-megaparsec http-client http-client-tls http-conduit
              http-types megaparsec monad-logger monad-stm mtl network
              optparse-applicative process regex-tdfa stm store strict
@@ -37815,6 +37834,8 @@ inherit (pkgs) libjpeg; inherit (pkgs) libpng; inherit (pkgs) zlib;};
            pname = "unfoldable";
            version = "0.9.6";
            sha256 = "cd90eae9ba258cfaf2554b4946c9b60def83c92548bbeb7269fec97a8657eaa1";
+           revision = "1";
+           editedCabalFile = "1lgyfmv339zfkrf6s4bw1ksk0757vcc1vx07yc4l33idmpsgz77c";
            libraryHaskellDepends = [
              base containers ghc-prim one-liner QuickCheck random transformers
            ];

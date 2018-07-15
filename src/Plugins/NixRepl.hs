@@ -5,6 +5,7 @@ module Plugins.NixRepl (nixreplPlugin) where
 
 import           Config
 import           NixEval
+import           Nixpkgs
 import           Plugins
 
 import           Control.Applicative        ((<|>))
@@ -71,20 +72,17 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
 
-nixpkgs :: MonadReader Config m => m String
-nixpkgs = (++ "/nixpkgs") <$> reader stateDir
-
-nixEval :: (MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
+nixEval :: (MonadNixpkgs m, MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
 nixEval contents eval = do
-  nixpkgs <- nixpkgs
+  nixpath <- nixpkgsPath
   nixInstantiate def
     { contents = contents
     , mode = if eval then Lazy else Parse
-    , nixPath = [ "nixpkgs=" ++ nixpkgs ]
+    , nixPath = nixpath
     , options = publicOptions
     }
 
-tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
+tryMod :: (MonadNixpkgs m, MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
 tryMod mod = do
   newState <- gets mod
   let contents = nixFile newState "null"
@@ -96,7 +94,7 @@ tryMod mod = do
       return Nothing
     Left error -> return $ Just error
 
-handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
+handle :: (MonadNixpkgs m, MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
 handle (Definition lit val) = do
   result <- tryMod (\s -> s { variables = M.insert lit val (variables s) })
   case result of
@@ -142,9 +140,6 @@ handle (Command "s" _) = do
 --handle (Command "r" _) = do
 --  put $ NixState M.empty []
 --  return $ Just "State got reset"
-handle (Command "u" _) = do
-  updateNixpkgs
-  return $ Just "Updated nixpkgs"
 handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
 
 defaultVariables :: Map String String
@@ -159,17 +154,7 @@ git args = liftIO $ do
   putStrLn $ "Calling git with arguments " ++ unwords args
   readProcess "/run/current-system/sw/bin/git" args ""
 
-updateNixpkgs :: (MonadReader Config m, MonadIO m) => m String
-updateNixpkgs = do
-  nixpkgs <- nixpkgs
-  exists <- liftIO $ doesPathExist nixpkgs
-  result <- git $ if exists
-    then ["-C", nixpkgs, "pull"]
-    else ["clone", "--depth", "1", "https://github.com/NixOS/nixpkgs.git", nixpkgs]
-  liftIO $ putStrLn result
-  git ["-C", nixpkgs, "rev-parse", "HEAD"]
-
-nixreplPlugin :: (MonadReader Config m, MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
+nixreplPlugin :: (MonadNixpkgs m, MonadReader Config m, MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
 nixreplPlugin = MyPlugin initialState trans "nixrepl"
   where
     initialState = NixState M.empty []

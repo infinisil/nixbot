@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns   #-}
 {-# LANGUAGE TupleSections    #-}
 module Plugins.Commands (commandsPlugin) where
 
@@ -26,6 +27,7 @@ import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
 
 import           Control.Monad.State
 import           NixEval
+import           Nixpkgs
 
 data LookupResult = Empty | Exact String | Guess String String
 
@@ -72,15 +74,17 @@ argsForMode Man arg =
   , "/share/man/man[0-9]/" ++ arg ++ ".[0-9].gz"
   ]
 
-nixLocate' :: MonadIO m => LocateMode -> Bool -> String -> m (Either String [String])
+nixLocate' :: (MonadNixpkgs m, MonadIO m) => LocateMode -> Bool -> String -> m (Either String [String])
 nixLocate' mode whole file = do
+  NixpkgsState { channels } <- nixpkgsState
+  let Just (_, Just db) = M.lookup "nixpkgs-unstable" channels
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
-    ("--minimal":"--top-level":argsForMode mode file ++ [ "--whole-name" | whole ]) ""
+    ("--minimal":"--top-level":argsForMode mode file ++ [ "--whole-name" | whole ] ++ ["-d", db]) ""
   return $ case exitCode of
     ExitFailure code -> Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
     ExitSuccess -> Right $ lines stdout
 
-nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [String])
+nixLocate :: (MonadNixpkgs m, MonadIO m) => LocateMode -> String -> m (Either String [String])
 nixLocate mode file = do
   whole <- nixLocate' mode True file
   all <- case whole of
@@ -145,7 +149,7 @@ parseDrvName name = case splitIndex of
 
 maxLength = 7
 
-doNixLocate :: MonadIO m => LocateMode -> String -> m String
+doNixLocate :: (MonadNixpkgs m, MonadIO m) => LocateMode -> String -> m String
 doNixLocate mode arg = do
   attributes <- nixLocate mode arg
   return $ case attributes of
@@ -159,7 +163,7 @@ doNixLocate mode arg = do
         else ", and " ++ show (length rest) ++ " more")
       . splitAt 7 $ packages
 
-commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
+commandsPlugin :: (MonadNixpkgs m, MonadIO m) => MyPlugin (Map String String) m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (chan, nick, ',':command) = case words command of

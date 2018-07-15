@@ -2,12 +2,11 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE TupleSections              #-}
 
 module Nixpkgs ( MonadNixpkgs
                , updateNixpkgs
                , nixpkgsState
-               , nixFlags
+               , nixpkgsPath
                , NixpkgsT
                , runNixpkgsT
                , Commit(..)
@@ -27,6 +26,7 @@ import           Data.Tree
 import           Control.Applicative
 import           Control.Exception.Base
 import           Control.Monad.IO.Class
+import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
 
@@ -44,7 +44,7 @@ import           Data.Time
 data Commit = Commit
   { sha  :: String
   , date :: UTCTime
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 type FileIndex = [([Text], Int)]
 
@@ -57,7 +57,7 @@ data NixpkgsState = NixpkgsState
 class MonadNixpkgs m where
   updateNixpkgs :: m ()
   nixpkgsState :: m NixpkgsState
-  nixFlags :: m [String]
+  nixpkgsPath :: m [String]
 
 getCommit :: MonadIO m => FilePath -> m Commit
 getCommit dir = do
@@ -80,8 +80,12 @@ getNixpkgsState = do
   commits <- forM channels (\chan -> liftA2 (,) (getCommit (dir </> "channels" </> chan))
                              (do
                                 exists <- liftIO $ doesDirectoryExist (dir </> "locatedb" </> chan)
-                                return $ if exists then Just (dir </> "locatedb" </> chan)
-                                else Nothing
+                                if exists then do
+                                  liftIO $ putStrLn ("Found locate db for " ++ chan ++ " at " ++ dir </> "locatedb" </> chan)
+                                  return $ Just (dir </> "locatedb" </> chan)
+                                else do
+                                  liftIO $ putStrLn ("Couldn't find locate db for " ++ chan ++ ", tried" ++ dir </> "locatedb" </> chan)
+                                  return Nothing
                               ))
   let channelCommits = Map.fromList $ zip channels commits
   return $ NixpkgsState masterCommit index channelCommits
@@ -101,7 +105,7 @@ initNixpkgs = do
   dir <- ask
   exists <- liftIO $ doesPathExist dir
   unless exists $ do
-    git ["clone", "--reference", "/home/infinisil/src/nixpkgs", "--dissociate", "https://github.com/NixOS/nixpkgs", dir </> "nixpkgs"]
+    git ["clone", "https://github.com/NixOS/nixpkgs", dir </> "nixpkgs"]
     git ["-C", dir </> "nixpkgs", "remote", "add", "channels", "https://github.com/NixOS/nixpkgs-channels"]
     git ["-C", dir </> "nixpkgs", "fetch", "channels"]
 
@@ -120,9 +124,11 @@ tryNixIndex database nixpkgs = do
   return ()
 
 git :: MonadIO m => [String] -> m String
-git args = do
-  liftIO $ putStrLn $ "Calling git with arguments " ++ unwords args
-  liftIO $ readProcess "/run/current-system/sw/bin/git" args ""
+git args = liftIO $ (do
+  putStrLn $ "Calling git with arguments " ++ unwords args
+  readProcess "/run/current-system/sw/bin/git" args "") `catch` \e -> do
+    liftIO $ print (e :: SomeException)
+    return "failed"
 
 newtype NixpkgsT m a = NixpkgsT (StateT NixpkgsState (ReaderT FilePath m) a) deriving (Functor, Applicative, Monad)
 
@@ -136,6 +142,24 @@ runNixpkgsT (NixpkgsT r) = do
 instance MonadTrans NixpkgsT where
   lift = NixpkgsT . lift . lift
 
+instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (StateT s m) where
+  updateNixpkgs = lift updateNixpkgs
+  nixpkgsState = lift nixpkgsState
+  nixpkgsPath = lift nixpkgsPath
+
+instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (LoggingT m) where
+  updateNixpkgs = lift updateNixpkgs
+  nixpkgsState = lift nixpkgsState
+  nixpkgsPath = lift nixpkgsPath
+
+instance (Monad m, MonadNixpkgs m) => MonadNixpkgs (ReaderT r m) where
+  updateNixpkgs = lift updateNixpkgs
+  nixpkgsState = lift nixpkgsState
+  nixpkgsPath = lift nixpkgsPath
+
+instance MonadIO m => MonadIO (NixpkgsT m) where
+  liftIO i = NixpkgsT $ lift $ lift $ liftIO i
+
 instance MonadIO m => MonadNixpkgs (NixpkgsT m) where
   updateNixpkgs = NixpkgsT $ do
     oldState <- get
@@ -143,22 +167,24 @@ instance MonadIO m => MonadNixpkgs (NixpkgsT m) where
     git ["-C", dir </> "nixpkgs", "fetch", "--all"]
     git ["-C", dir </> "nixpkgs", "merge", "origin/master", "--ff-only"]
     masterCommit <- getCommit (dir </> "nixpkgs")
-    channels <- lift $ map (tail . dropWhile (/='/')) . lines <$> git ["-C", dir </> "nixpkgs", "branch", "--list", "-r", "channels/*"]
-    channelCommits <- forM channels $ \chan -> do
+    chans <- lift $ map (tail . dropWhile (/='/')) . lines <$> git ["-C", dir </> "nixpkgs", "branch", "--list", "-r", "channels/*"]
+    channelCommits <- forM chans $ \chan -> do
       exists <- liftIO $ doesDirectoryExist (dir </> "channels" </> chan)
       if exists then git ["-C", dir </> "channels" </> chan, "merge", "channels/" ++ chan, "--ff-only"]
         else git ["-C", dir </> "nixpkgs", "worktree", "add", "--track", "-b", chan, dir </> "channels" </> chan, "channels/" ++ chan]
-      tryNixIndex (dir </> "locatedb" </> chan) (dir </> "channels" </> chan)
+      let oldCommit = fst <$> Map.lookup chan (channels oldState)
+      newCommit <- getCommit (dir </> "channels" </> chan)
+      when (oldCommit /= Just newCommit) $ tryNixIndex (dir </> "locatedb" </> chan) (dir </> "channels" </> chan)
 
       dbexists <- liftIO $ doesDirectoryExist (dir </> "locatedb" </> chan)
-      (chan,) <$> liftA2 (,) (getCommit (dir </> "channels" </> chan)) (return $ if dbexists then Just (dir </> "locatedb" </> chan) else Nothing)
+      return (chan, (newCommit, if dbexists then Just (dir </> "locatedb" </> chan) else Nothing))
 
     newCommits <- lines <$> git ["-C", dir </> "nixpkgs", "rev-list", sha (master oldState) ++ ".." ++ sha masterCommit]
     let oldIndex = Map.fromList $ fileIndex oldState
     increases <- concat <$> forM newCommits (countCommit (dir </> "nixpkgs"))
     let newIndex = sortBy (flip (comparing snd)) . Map.toList $ foldr (\key -> Map.insertWith (+) key 1) oldIndex increases
 
-    liftIO $writeFile (dir </> "index") (show newIndex)
+    liftIO $ writeFile (dir </> "index") (show newIndex)
     put $ NixpkgsState masterCommit newIndex (Map.fromList channelCommits)
     return ()
     where
@@ -168,6 +194,6 @@ instance MonadIO m => MonadNixpkgs (NixpkgsT m) where
         return $ map (reverse . Text.split (=='/')) $ Text.lines (Text.pack fileStr)
 
   nixpkgsState = NixpkgsT get
-  nixFlags = NixpkgsT $ do
+  nixpkgsPath = NixpkgsT $ do
     dir <- ask
-    return ["-I", "nixpkgs=" ++ dir </> "nixpkgs", "-I", dir </> "channels"]
+    return ["nixpkgs=" ++ dir </> "nixpkgs", dir </> "channels"]

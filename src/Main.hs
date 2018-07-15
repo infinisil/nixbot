@@ -11,6 +11,7 @@
 module Main where
 
 import           Config
+import           Nixpkgs
 import           Plugins
 import           Plugins.Commands
 import           Plugins.Hello
@@ -20,10 +21,11 @@ import           Plugins.NixRepl
 import           Plugins.Pr
 import           Plugins.Tell
 
-import           Control.Concurrent              (forkIO)
+import           Control.Concurrent              (forkIO, threadDelay)
 import           Control.Concurrent.STM          (TMVar, atomically,
                                                   newEmptyTMVarIO, newTMVarIO,
                                                   putTMVar, takeTMVar)
+import           Control.Concurrent.STM.TQueue
 import           Control.Exception               (SomeException, handle)
 import           Control.Exception.Base          (IOException)
 import           Control.Monad                   (foldM, mzero)
@@ -145,14 +147,24 @@ start = do
   $(logDebug) "disabled nowait"
 
   cfg <- reader config
-  cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
-  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage cache cfg chan)
+  handlerQueue <- liftIO newTQueueIO
+
+  liftIO $ forkIO $ queueHandler handlerQueue cfg chan
+  liftIO $ forkIO $ periodicUpdate handlerQueue
+
+  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage handlerQueue cfg chan)
   $(logDebug) $ "Started consumer with tag " <> pack (show tag)
 
   var <- liftIO newEmptyTMVarIO
   liftIO $ A.addConnectionClosedHandler conn True $ writeDone var
   $(logDebug) "terminating if enter is pressed..."
   liftIO . atomically $ takeTMVar var
+
+periodicUpdate :: TQueue QueueInput -> IO ()
+periodicUpdate queue = do
+  threadDelay (60 * 1000 * 1000)
+  atomically $ writeTQueue queue DoAnUpdate
+  periodicUpdate queue
 
 onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
 onInterrupt e = do
@@ -171,24 +183,33 @@ publishMessage chan msg = do
   putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
   return intMb
 
-onMessage :: [Text] -> Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
-onMessage cache cfg chan (m, e) =
+data QueueInput = DoAnUpdate | IRCMessage Input
+
+queueHandler :: TQueue QueueInput -> Config -> A.Channel -> IO ()
+queueHandler queue cfg chan = do
+  runNixpkgsT $ forever $ do
+    msg <- lift $ liftIO $ atomically $ readTQueue queue
+    case msg of
+      DoAnUpdate -> updateNixpkgs
+      IRCMessage msg -> do
+        replyBodies <- reply cfg msg
+        liftIO $ putStrLn $ "got replies: " ++ concatMap show replyBodies
+        liftIO $ sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b "privmsg"))
+
+onMessage :: TQueue QueueInput -> Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
+onMessage queue cfg chan (m, e) =
   case decode $ A.msgBody m :: Maybe Input of
     Nothing -> do
       putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
       A.ackEnv e
     Just msg -> do
       putStrLn $ "Valid message " ++ show msg
-      forkIO $ do
-        replyBodies <- reply cache cfg msg
-        putStrLn $ "got replies: " ++ concatMap show replyBodies
-        sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b "privmsg"))
+      atomically $ writeTQueue queue (IRCMessage msg)
       A.ackEnv e
 
-reply :: [Text] -> Config -> Input -> IO [String]
-reply cache cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = newPlugins cache channel
-  replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (channel, nick, msg)) chanPlugs
+reply :: (MonadIO m, MonadNixpkgs m) => Config -> Input -> m [String]
+reply cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
+  replies <- forM (newPlugins channel) $ \plug -> runReaderT (runStdoutLoggingT $ plug (channel, nick, msg)) cfg
   return $ take 3 $ concat replies
 
 prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]
@@ -207,34 +228,35 @@ prPlug = prPlugin Settings
       _ -> True
   } `onDomain` nixOS
 
-defaultPlugins cache =
+defaultPlugins :: forall m . (MonadNixpkgs m, MonadLogger m, MonadReader Config m, MonadIO m) => [ PluginInput -> m [String] ]
+defaultPlugins =
   [ karmaPlugin `onDomain` nixOS
   , prPlug
   , commandsPlugin `onDomain` nixOS
   , nixreplPlugin `onDomain` "bottest"
-  , nixpkgsPlugin cache `onDomain` "bottest"
+  , nixpkgsPlugin `onDomain` "bottest"
   , tellPlugin `onDomain` nixOS
   ]
 
-newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
-newPlugins cache "#nixos" = defaultPlugins cache
-newPlugins cache "#nixos-chat" = defaultPlugins cache
-newPlugins cache "#bottest" = defaultPlugins cache
-newPlugins cache "#nixos-borg" = defaultPlugins cache
-newPlugins cache "#nixos-dev" = defaultPlugins cache
-newPlugins cache "#nix-lang" = defaultPlugins cache
-newPlugins _ ('#':_) = []
-newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
+newPlugins :: (MonadNixpkgs m, MonadLogger m, MonadReader Config m, MonadIO m) => String -> [ PluginInput -> m [String] ]
+newPlugins "#nixos" = defaultPlugins
+newPlugins "#nixos-chat" = defaultPlugins
+newPlugins "#bottest" = defaultPlugins
+newPlugins "#nixos-borg" = defaultPlugins
+newPlugins "#nixos-dev" = defaultPlugins
+newPlugins "#nix-lang" = defaultPlugins
+newPlugins ('#':_) = []
+newPlugins nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , helloPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
                   , prPlug
-                  , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
+                  , nixpkgsPlugin `onDomain` ("users/" ++ nick)
                   ]
 
 -- Domains
+
 nixOS = "nixOS"
 testing = "Testing"
 global = "Global"
-
 
