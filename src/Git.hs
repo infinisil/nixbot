@@ -13,6 +13,10 @@ module Git ( runGit
            , gitCommitCount
            , gitGetCommit
            , gitLsFiles
+           , Commit
+           , Remote
+           , Branch
+           , Command
            ) where
 
 import           Data.Functor

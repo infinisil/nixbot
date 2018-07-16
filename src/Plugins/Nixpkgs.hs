@@ -26,16 +26,6 @@ import           Plugins
 parseNixpkgs :: String -> [String]
 parseNixpkgs s = map (!! 1) (s =~ ("<([^ <>]+)>" :: String))
 
-getNixpkgs :: MonadIO m => Text -> m (Maybe Text)
-getNixpkgs s = do
-  c <- liftIO $ C.commit "NixOS" "nixpkgs" "HEAD"
-  case c of
-    Left error -> do
-      liftIO $ print error
-      return Nothing
-    Right GH.Commit { GH.commitSha = N sha } ->
-      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> s
-
 findPath :: (Monad m, MonadNixpkgs m) => Text -> m (Maybe Text)
 findPath input = do
   let actualInput = reverse $ Text.split (=='/') input
@@ -56,7 +46,7 @@ tryNixpkgs input = do
 nixpkgs :: (MonadNixpkgs m, MonadIO m) => String -> m [String]
 nixpkgs s = do
   found <- catMaybes <$> mapM tryNixpkgs (parseNixpkgs s)
-  NixpkgsState { master = Commit { sha } } <- nixpkgsState
+  NixpkgsState { master = sha } <- nixpkgsState
   return $ map (\file -> "https://github.com/NixOS/nixpkgs/tree/" ++ take 7 sha ++ "/" ++ file) found
 
 nixpkgsPlugin :: (MonadNixpkgs m, MonadIO m) => MyPlugin () m

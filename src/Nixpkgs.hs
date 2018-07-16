@@ -25,6 +25,7 @@ import           Data.Tree
 
 import           Control.Applicative
 import           Control.Exception.Base
+import           Control.Monad.Fail
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Control.Monad.Reader
@@ -40,11 +41,7 @@ import           Control.Concurrent.Async.Pool
 import qualified Data.Text.IO                  as TextIO
 
 import           Data.Time
-
-data Commit = Commit
-  { sha  :: String
-  , date :: UTCTime
-  } deriving (Show, Eq)
+import           Git
 
 type FileIndex = [([Text], Int)]
 
@@ -59,25 +56,19 @@ class Monad m => MonadNixpkgs m where
   nixpkgsState :: m NixpkgsState
   nixpkgsPath :: m [String]
 
-getCommit :: MonadIO m => FilePath -> m Commit
-getCommit dir = do
-  [sha, timestring] <- words <$> git ["-C", dir, "log", "-1", "--format=%H %at"]
-  time <- parseTimeM False defaultTimeLocale "%s" timestring
-  return $ Commit sha time
-
-getNixpkgsState :: (MonadReader FilePath m, MonadIO m) => m NixpkgsState
+getNixpkgsState :: (MonadReader FilePath m, MonadIO m, MonadFail m) => m NixpkgsState
 getNixpkgsState = do
   dir <- ask
-  masterCommit <- getCommit (dir </> "nixpkgs")
+  masterCommit <- runGit (dir </> "nixpkgs") gitGetCommit
   indexExists <- liftIO $ doesFileExist (dir </> "index")
   index <- if indexExists then
     liftIO $ read <$> S.readFile (dir </> "index")
     else do
       index <- generateIndex (dir </> "nixpkgs")
-      liftIO $ writeFile (dir </> "index") (show index)
+      --liftIO $ writeFile (dir </> "index") (show index)
       return index
   channels <- liftIO $ listDirectory (dir </> "channels")
-  commits <- forM channels (\chan -> liftA2 (,) (getCommit (dir </> "channels" </> chan))
+  commits <- forM channels (\chan -> liftA2 (,) (runGit (dir </> "channels" </> chan) gitGetCommit)
                              (do
                                 exists <- liftIO $ doesDirectoryExist (dir </> "locatedb" </> chan)
                                 if exists then do
@@ -92,26 +83,36 @@ getNixpkgsState = do
 
 generateIndex :: (MonadIO m) => FilePath -> m FileIndex
 generateIndex root = liftIO $ withTaskGroup 8 $ \taskgroup -> do
-  files <- fmap (Text.split (=='/')) . Text.lines . Text.pack <$> git ["-C", root, "ls-files"]
+  files <- map (Text.split (=='/') . Text.pack) <$> runGit root gitLsFiles
   let folders = filter (not . null ) . nub . map init $ files
   let everything = folders ++ files
   counts <- mapTasks taskgroup $ map count everything
   return . sortBy (flip (comparing snd)) . zip (map reverse everything) $ counts
   where
-    count path = length . lines <$> git ["-C", root, "log", "--pretty=format:", "--", Text.unpack $ Text.intercalate "/" path]
+    count path = runGit root $ gitCommitCount (Text.unpack $ Text.intercalate "/" path)
 
-initNixpkgs :: (MonadReader FilePath m, MonadIO m) => m NixpkgsState
+gitNixpkgs :: (MonadReader FilePath m, MonadIO m, MonadFail m) => Command a -> m a
+gitNixpkgs command = do
+  dir <- ask
+  runGit (dir </> "nixpkgs") command
+
+gitChan :: (MonadReader FilePath m, MonadIO m, MonadFail m) => String -> Command a -> m a
+gitChan chan command = do
+  dir <- ask
+  runGit (dir </> "channels" </> chan) command
+
+initNixpkgs :: (MonadReader FilePath m, MonadIO m, MonadFail m) => m NixpkgsState
 initNixpkgs = do
   dir <- ask
   exists <- liftIO $ doesPathExist dir
   unless exists $ do
-    git ["clone", "https://github.com/NixOS/nixpkgs", dir </> "nixpkgs"]
-    git ["-C", dir </> "nixpkgs", "remote", "add", "channels", "https://github.com/NixOS/nixpkgs-channels"]
-    git ["-C", dir </> "nixpkgs", "fetch", "channels"]
+    gitClone "https://github.com/NixOS/nixpkgs" (dir </> "nixpkgs")
+    gitNixpkgs $ gitAddRemote "https://github.com/NixOS/nixpkgs-channels" "channels"
+    gitNixpkgs $ gitFetch "channels"
 
-    channels <- map (tail . dropWhile (/='/')) . lines <$> git ["-C", dir </> "nixpkgs", "branch", "--list", "-r", "channels/*"]
+    channels <- gitNixpkgs $ gitGetRemoteBranches "channels"
     forM_ channels $ \chan -> do
-      git ["-C", dir </> "nixpkgs", "worktree", "add", "--track", "-b", chan, dir </> "channels" </> chan, "channels/" ++ chan]
+      gitNixpkgs $ gitAddBranchWorktree chan "channels" (dir </> "channels" </> chan)
       liftIO $ createDirectoryIfMissing True (dir </> "locatedb")
       tryNixIndex (dir </> "locatedb" </> chan) (dir </> "channels" </> chan)
 
@@ -123,16 +124,9 @@ tryNixIndex database nixpkgs = do
     print (e :: SomeException)
   return ()
 
-git :: MonadIO m => [String] -> m String
-git args = liftIO $ (do
-  putStrLn $ "Calling git with arguments " ++ unwords args
-  readProcess "/run/current-system/sw/bin/git" args "") `catch` \e -> do
-    liftIO $ print (e :: SomeException)
-    return "failed"
-
 newtype NixpkgsT m a = NixpkgsT (StateT NixpkgsState (ReaderT FilePath m) a) deriving (Functor, Applicative, Monad, MonadIO)
 
-runNixpkgsT :: MonadIO m => NixpkgsT m a -> m a
+runNixpkgsT :: (MonadFail m, MonadIO m) => NixpkgsT m a -> m a
 runNixpkgsT (NixpkgsT r) = do
   dir <- liftIO $ getXdgDirectory XdgCache "nixbot/nixpkgs"
   flip runReaderT dir $ do
@@ -157,38 +151,37 @@ instance MonadNixpkgs m => MonadNixpkgs (ReaderT r m) where
   nixpkgsState = lift nixpkgsState
   nixpkgsPath = lift nixpkgsPath
 
-instance MonadIO m => MonadNixpkgs (NixpkgsT m) where
+instance (MonadFail m, MonadIO m) => MonadNixpkgs (NixpkgsT m) where
   updateNixpkgs = NixpkgsT $ do
     oldState <- get
     dir <- ask
-    git ["-C", dir </> "nixpkgs", "fetch", "--all"]
-    git ["-C", dir </> "nixpkgs", "merge", "origin/master", "--ff-only"]
-    masterCommit <- getCommit (dir </> "nixpkgs")
-    chans <- lift $ map (tail . dropWhile (/='/')) . lines <$> git ["-C", dir </> "nixpkgs", "branch", "--list", "-r", "channels/*"]
+    gitNixpkgs $ gitFetch "origin"
+    gitNixpkgs gitMergeFF
+    masterCommit <- gitNixpkgs gitGetCommit
+
+    gitNixpkgs $ gitFetch "channels"
+    chans <- gitNixpkgs $ gitGetRemoteBranches "channels"
     channelCommits <- forM chans $ \chan -> do
       exists <- liftIO $ doesDirectoryExist (dir </> "channels" </> chan)
-      if exists then git ["-C", dir </> "channels" </> chan, "merge", "channels/" ++ chan, "--ff-only"]
-        else git ["-C", dir </> "nixpkgs", "worktree", "add", "--track", "-b", chan, dir </> "channels" </> chan, "channels/" ++ chan]
+      if exists
+        then gitChan chan gitMergeFF
+        else gitNixpkgs $ gitAddBranchWorktree chan "channels" (dir </> "channels" </> chan)
+
       let oldCommit = fst <$> Map.lookup chan (channels oldState)
-      newCommit <- getCommit (dir </> "channels" </> chan)
+      newCommit <- gitChan chan gitGetCommit
       when (oldCommit /= Just newCommit) $ tryNixIndex (dir </> "locatedb" </> chan) (dir </> "channels" </> chan)
 
       dbexists <- liftIO $ doesDirectoryExist (dir </> "locatedb" </> chan)
       return (chan, (newCommit, if dbexists then Just (dir </> "locatedb" </> chan) else Nothing))
 
-    newCommits <- lines <$> git ["-C", dir </> "nixpkgs", "rev-list", sha (master oldState) ++ ".." ++ sha masterCommit]
+    newCommits <- gitNixpkgs $ gitCommitsBetween (master oldState) masterCommit
     let oldIndex = Map.fromList $ fileIndex oldState
-    increases <- concat <$> forM newCommits (countCommit (dir </> "nixpkgs"))
+    increases <- fmap concat $ forM newCommits $ \commit ->
+      map (reverse . Text.split (=='/') . Text.pack) <$> gitNixpkgs (gitChangedFiles commit)
     let newIndex = sortBy (flip (comparing snd)) . Map.toList $ foldr (\key -> Map.insertWith (+) key 1) oldIndex increases
-
-    liftIO $ writeFile (dir </> "index") (show newIndex)
+    --liftIO $ writeFile (dir </> "index") (show newIndex)
     put $ NixpkgsState masterCommit newIndex (Map.fromList channelCommits)
     return ()
-    where
-      countCommit :: MonadIO m => FilePath -> String -> m [[Text]]
-      countCommit gitdir sha = do
-        fileStr <- git ["-C", gitdir, "diff-tree", "--no-commit-id", "--name-only", "-r", sha]
-        return $ map (reverse . Text.split (=='/')) $ Text.lines (Text.pack fileStr)
 
   nixpkgsState = NixpkgsT get
   nixpkgsPath = NixpkgsT $ do
