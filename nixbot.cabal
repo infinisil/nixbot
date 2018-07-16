@@ -28,6 +28,7 @@ executable nixbot
                        Plugins.Tell
                        NixEval
                        Nixpkgs
+                       Git
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
