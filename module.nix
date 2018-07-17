@@ -15,17 +15,19 @@
     description = "Nix bot";
     wantedBy = [ "multi-user.target" ];
     after = [ "network.target" ];
-    script = ''
-      export PATH="${lib.makeBinPath (with pkgs; [ gnutar gzip ])}:$PATH"
-      ${import ./default.nix { inherit pkgs; }}/bin/nixbot ${./release.nix}
-    '';
+    path = with pkgs; [
+      git
+      gnutar
+      gzip
+    ];
     serviceConfig = {
+      ExecStart = "${import ./default.nix { inherit pkgs; }}/bin/nixbot ${./release.nix}";
       User = "nixbot";
       Restart = "always";
       RestartSec = 1;
       MemoryMax = "100M";
       CPUQuota = "50%";
-      WorkingDirectory = "/var/lib/nixbot/state/nixpkgs";
+      WorkingDirectory = "/var/lib/nixbot";
     };
   };
 }

@@ -162,8 +162,8 @@ start = do
 
 periodicUpdate :: TQueue QueueInput -> IO ()
 periodicUpdate queue = do
-  threadDelay (60 * 1000 * 1000)
   atomically $ writeTQueue queue DoAnUpdate
+  threadDelay (60 * 1000 * 1000)
   periodicUpdate queue
 
 onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
@@ -188,6 +188,8 @@ data QueueInput = DoAnUpdate | IRCMessage Input
 queueHandler :: TQueue QueueInput -> Config -> A.Channel -> IO ()
 queueHandler queue cfg chan = do
   runNixpkgsT $ forever $ do
+    nixpkgs <- masterPath
+    liftIO $ setCurrentDirectory nixpkgs
     msg <- lift $ liftIO $ atomically $ readTQueue queue
     case msg of
       DoAnUpdate -> updateNixpkgs

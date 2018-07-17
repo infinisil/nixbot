@@ -1,5 +1,6 @@
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RankNTypes     #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns   #-}
+{-# LANGUAGE RankNTypes       #-}
 
 module Git ( runGit
            , gitClone
@@ -20,12 +21,13 @@ module Git ( runGit
            ) where
 
 import           Data.Functor
+import           Data.Maybe
 
 import           System.Directory
 import           System.Exit
 import           System.Process
 
-import           Control.Monad.Fail     hiding (fail)
+import           Control.Monad.Except
 import           Control.Monad.IO.Class
 
 type Commit = String
@@ -35,14 +37,14 @@ type Branch = String
 data Command a = Command
   { name  :: String
   , args  :: [String]
-  , parse :: forall m . MonadFail m => String -> m a
+  , parse :: forall m . MonadError String m => String -> m a
   }
 
 gitLsFiles :: Command [FilePath]
 gitLsFiles = Command "file listing" ["ls-files"] (return . lines)
 
 gitGetCommit :: Command Commit
-gitGetCommit = Command "commit getter" ["rev-parse", "HEAD"] return
+gitGetCommit = Command "commit getter" ["rev-parse", "HEAD"] (return . head . lines)
 
 gitCommitCount :: FilePath -> Command Int
 gitCommitCount file = Command ("commit count for file " ++ file)
@@ -75,24 +77,22 @@ gitChangedFiles :: Commit -> Command [FilePath]
 gitChangedFiles commit = Command "changed files in a commit" ["diff-tree", "--no-commit-id", "--name-only", "-r", commit] (return . lines)
 
 
-gitClone :: (MonadFail m, MonadIO m) => String -> FilePath -> m ()
+gitClone :: (MonadError String m, MonadIO m) => String -> FilePath -> m ()
 gitClone repo target = git ["clone", repo, target] $> ()
 
-git :: (MonadFail m, MonadIO m) => [String] -> m String
-git args = liftIO $ do
-  mgit <- findExecutable "git"
+git :: (MonadError String m, MonadIO m) => [String] -> m String
+git args = do
+  mgit <- liftIO $ findExecutable "git"
   case mgit of
-    Nothing -> fail "No git executable was found on PATH"
+    Nothing -> throwError "No git executable was found on PATH"
     Just exe -> do
-      (code, stdout, stderr) <- readProcessWithExitCode exe args ""
+      (code, stdout, stderr) <- liftIO $ readProcessWithExitCode exe args ""
       case code of
-        ExitFailure failcode -> fail $ "Git call with arguments " ++ show args ++ " failed with exit code " ++ show failcode ++ " and error " ++ stderr
+        ExitFailure failcode -> throwError $ "Git call with arguments " ++ show args ++ " failed with exit code " ++ show failcode ++ " and error " ++ stderr
         ExitSuccess -> return stdout
 
-runGit :: (MonadFail m, MonadIO m) => FilePath -> Command a -> m a
+runGit :: (MonadError String m, MonadIO m) => FilePath -> Command a -> m a
 runGit gitdir Command { name, args, parse } = do
   output <- git ("-C":gitdir:args)
-  case parse output of
-    Nothing     -> fail $ "Git " ++ name ++ ": " ++ "Couldn't parse result"
-    Just result -> return result
+  parse output
 
