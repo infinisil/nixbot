@@ -43,14 +43,20 @@ findPath cache input = find (Text.isSuffixOf input) cache
 prependSlash :: Text -> Text
 prependSlash = ("/"<>) . snd . Text.break (/='/')
 
-nixpkgs :: MonadIO m => [Text] -> String -> m [String]
+nixpkgs :: MonadIO m => [Text] -> [String] -> m [Text]
 nixpkgs cache s = do
-  let searches = mapMaybe (findPath cache . prependSlash . Text.pack) $ parseNixpkgs s
-  results <- catMaybes <$> mapM getNixpkgs searches
-  return $ map Text.unpack results
+  let searches = mapMaybe (findPath cache . prependSlash . Text.pack) s
+  catMaybes <$> mapM getNixpkgs searches
 
 nixpkgsPlugin :: MonadIO m => [Text] -> MyPlugin () m
 nixpkgsPlugin cache = MyPlugin () trans "nixpkgs"
   where
-    trans (chan, nick, msg) = nixpkgs cache msg
+    trans (chan, nick, msg) = map Text.unpack <$> case words msg of
+      [",find"] -> return ["Use ,find to get a GitHub link to the master version of files in nixpkgs, e.g. \",find hello/default.nix\" or \",find all-packages.nix\""]
+      ",find":args -> do
+        ree <- nixpkgs cache args
+        case ree of
+          []      -> return ["Couldn't find any such files"]
+          results -> return $ map ("Found file: " <>) results
+      _ -> return []
 
