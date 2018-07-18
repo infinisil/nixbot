@@ -185,7 +185,10 @@ commandsPlugin = MyPlugin M.empty trans "commands"
                 modify (M.delete cmd)
                 return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
           _ -> do
+            old <- gets $ M.lookup cmd
             modify (M.insert cmd (unwords rest))
-            return [ cmd ++ " defined" ]
+            case old of
+              Nothing -> return [ cmd ++ " defined" ]
+              Just val -> return [ cmd ++ " redefined, was defined as: " ++ val ]
       cmd:args -> replyLookup nick (Just (unwords args)) <$> gets (lookupCommand cmd)
     trans (_, _, _) = return []
