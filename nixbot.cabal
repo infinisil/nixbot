@@ -27,6 +27,7 @@ executable nixbot
                        Plugins.NixRepl
                        Plugins.Tell
                        NixEval
+                       Backends
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
@@ -61,3 +62,4 @@ executable nixbot
                      , http-client-tls
                      , store
                      , time
+                     , conduit
