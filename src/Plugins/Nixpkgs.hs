@@ -32,7 +32,7 @@ getNixpkgs s = do
       liftIO $ print error
       return Nothing
     Right Commit { commitSha = N sha } ->
-      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 7 sha <> s
+      return $ Just $ "https://github.com/NixOS/nixpkgs/tree/" <> Text.take 8 sha <> s
 
 initCache :: MonadIO m => m [Text]
 initCache = liftIO $ Text.lines <$> TIO.readFile "filecache"
