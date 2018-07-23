@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TupleSections    #-}
 module Plugins.Tell (tellPlugin) where
 
 import           Plugins
@@ -10,8 +9,8 @@ import           Control.Monad.State
 import           Data.List
 import           Data.Map               (Map)
 import qualified Data.Map               as M
+import           Data.Maybe             (catMaybes)
 import           Data.Time
-import           Data.Time.Clock.POSIX
 
 type Chan = String
 type Nick = String
@@ -23,30 +22,28 @@ data Entry = Entry
   , time :: UTCTime
   } deriving (Show, Read)
 
-showDuration :: NominalDiffTime -> String
-showDuration diff = intercalate ", " . take 2 . filter (not . null) $ list
+prettySeconds :: Int -> Integer -> String
+prettySeconds relevant seconds = intercalate ", " relevantStrings
   where
-    seconds = round diff
-    minutes = seconds `div` 60
-    hours = minutes `div` 60
-    days = hours `div` 24
-    weeks = days `div` 7
+    relevantStrings = take relevant . catMaybes $ format "year" rest : strings
 
-    showit 0 name = ""
-    showit 1 name = "1 " ++ name
-    showit n name = show n ++ " " ++ name ++ "s"
-
-    list =
-      [ showit weeks "week"
-      , showit (days `mod` 7) "day"
-      , showit (hours `mod` 24) "hour"
-      , showit (minutes `mod` 60) "minute"
-      , showit (seconds `mod` 60) "second"
+    (rest, strings) = mapAccumR next seconds
+      [ (52, "week")
+      , (7, "day")
+      , (24, "hour")
+      , (60, "minute")
+      , (60, "second")
       ]
+
+    next val (unit, str) = format str <$> divMod val unit
+
+    format _ 0   = Nothing
+    format str 1 = Just $ "1 " ++ str
+    format str n = Just $ show n ++ " " ++ str ++ "s"
 
 formatEntry :: UTCTime -> Entry -> String
 formatEntry now Entry { from, msg, time } = ago ++ " ago <" ++ from ++ "> " ++ msg
-  where ago = showDuration (diffUTCTime now time)
+  where ago = prettySeconds 2 . round . diffUTCTime now $ time
 
 
 tellPlugin :: MonadIO m => MyPlugin (Map (Chan, Nick) [Entry]) m
