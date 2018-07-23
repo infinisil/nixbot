@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TupleSections    #-}
 module Plugins.Commands (commandsPlugin) where
 
 import           Control.Monad.IO.Class
@@ -143,8 +142,6 @@ parseDrvName name = case splitIndex of
   where
     splitIndex = findIndex (uncurry (&&) . bimap (=='-') (not . isAlpha)) . zip name . tail $ name
 
-maxLength = 7
-
 doNixLocate :: MonadIO m => LocateMode -> String -> m String
 doNixLocate mode arg = do
   attributes <- nixLocate mode arg
@@ -164,7 +161,7 @@ commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (chan, nick, ',':command) = case words command of
       [] -> do
-        keys <- gets $ M.keys . M.insert "find" "" . M.insert "tell" "" . M.insert "locate" ""
+        keys <- gets M.keys
         return ["All commands: " ++ unwords keys]
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
