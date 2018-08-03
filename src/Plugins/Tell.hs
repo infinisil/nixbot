@@ -12,6 +12,8 @@ import qualified Data.Map               as M
 import           Data.Maybe             (catMaybes)
 import           Data.Time
 
+import           Utils
+
 type Chan = String
 type Nick = String
 
@@ -21,25 +23,6 @@ data Entry = Entry
   , msg  :: String
   , time :: UTCTime
   } deriving (Show, Read)
-
-prettySeconds :: Int -> Integer -> String
-prettySeconds relevant seconds = intercalate ", " relevantStrings
-  where
-    relevantStrings = take relevant . catMaybes $ format "year" rest : strings
-
-    (rest, strings) = mapAccumR next seconds
-      [ (52, "week")
-      , (7, "day")
-      , (24, "hour")
-      , (60, "minute")
-      , (60, "second")
-      ]
-
-    next val (unit, str) = format str <$> divMod val unit
-
-    format _ 0   = Nothing
-    format str 1 = Just $ "1 " ++ str
-    format str n = Just $ show n ++ " " ++ str ++ "s"
 
 formatEntry :: UTCTime -> Entry -> String
 formatEntry now Entry { from, msg, time } = ago ++ " ago <" ++ from ++ "> " ++ msg
