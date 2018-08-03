@@ -20,7 +20,7 @@ executable nixbot
   other-modules:       Config
                        Plugins
                        Plugins.Commands
-                       Plugins.Hello
+                       Plugins.Reply
                        Plugins.Karma
                        Plugins.Nixpkgs
                        Plugins.Pr

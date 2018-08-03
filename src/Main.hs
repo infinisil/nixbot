@@ -13,11 +13,11 @@ module Main where
 import           Config
 import           Plugins
 import           Plugins.Commands
-import           Plugins.Hello
 import           Plugins.Karma
 import           Plugins.Nixpkgs
 import           Plugins.NixRepl
 import           Plugins.Pr
+import           Plugins.Reply
 import           Plugins.Tell
 
 import           Control.Concurrent              (forkIO)
@@ -210,6 +210,7 @@ prPlug = prPlugin Settings
 defaultPlugins cache =
   [ karmaPlugin `onDomain` nixOS
   , prPlug
+  , replyPlugin `onDomain` nixOS
   , commandsPlugin `onDomain` nixOS
   , nixreplPlugin `onDomain` "bottest"
   , nixpkgsPlugin cache `onDomain` "bottest"
@@ -225,7 +226,7 @@ newPlugins cache "#nixos-dev" = defaultPlugins cache
 newPlugins cache "#nix-lang" = defaultPlugins cache
 newPlugins _ ('#':_) = []
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
-                  , helloPlugin `onDomain` ("users/" ++ nick)
+                  , replyPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
                   , prPlug
