@@ -17,6 +17,9 @@ import           Data.Maybe
 import           GHC.Generics              (Generic)
 import           Text.Regex.TDFA
 
+import           Data.Time
+import           Utils
+
 import qualified Data.Text                 as Text
 
 import           Network.HTTP.Client
@@ -26,13 +29,6 @@ import           Network.HTTP.Types.Status
 import           GitHub                    hiding (Owner, Repo)
 import           GitHub.Data.Id
 import           GitHub.Data.Name
-
-data IssueInfo = IssueInfo
-  { issue_state  :: String
-  , issue_url    :: String
-  , issue_author :: String
-  , issue_title  :: String
-  } deriving Show
 
 fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> Settings -> ParsedIssue -> m (Maybe String)
 fetchInfo manager settings@Settings { defOwner, defRepo } pissue@(ParsedIssue parseType owner repo number) = do
@@ -54,7 +50,8 @@ fetchInfo manager settings@Settings { defOwner, defRepo } pissue@(ParsedIssue pa
             Right PullRequest { pullRequestMerged = True } -> "merged"
             _                                              -> showState
         _ -> return showState
-      return $ prefix ++ " (by " ++ author ++ ", " ++ state ++ "): " ++ title
+      ago <- liftIO $ fmap (prettySeconds 1 . round . (`diffUTCTime` issueCreatedAt issue)) getCurrentTime
+      return $ prefix ++ " (by " ++ author ++ ", " ++ ago ++ " ago, " ++ state ++ "): " ++ title
       where
         author = Text.unpack . untagName . simpleUserLogin . issueUser $ issue
         title = Text.unpack . issueTitle $ issue
