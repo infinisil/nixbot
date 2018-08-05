@@ -46,7 +46,7 @@ tellPlugin = MyPlugin M.empty trans "tell"
                 , msg = unwords rest
                 , time = time
                 }
-          modify $ M.insertWith (++) (chan, target) [entry]
+          modify $ M.insertWith (flip (++)) (chan, target) [entry]
           return ["I'll pass that on to " ++ target]
         _ -> return []
       return $ map (\m -> nick ++ ": " ++ m) $ messages ++ tell
