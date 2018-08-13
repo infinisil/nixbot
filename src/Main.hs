@@ -218,13 +218,7 @@ defaultPlugins cache =
   ]
 
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
-newPlugins cache "#nixos" = defaultPlugins cache
-newPlugins cache "#nixos-chat" = defaultPlugins cache
-newPlugins cache "#bottest" = defaultPlugins cache
-newPlugins cache "#nixos-borg" = defaultPlugins cache
-newPlugins cache "#nixos-dev" = defaultPlugins cache
-newPlugins cache "#nix-lang" = defaultPlugins cache
-newPlugins _ ('#':_) = []
+newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
                   , karmaPlugin `onDomain` ("users/" ++ nick)
