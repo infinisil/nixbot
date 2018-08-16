@@ -19,6 +19,7 @@ import           Plugins.NixRepl
 import           Plugins.Pr
 import           Plugins.Reply
 import           Plugins.Tell
+import           Plugins.Unreg
 
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
@@ -218,6 +219,7 @@ defaultPlugins cache =
   ]
 
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
+newPlugins cache "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
 newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
