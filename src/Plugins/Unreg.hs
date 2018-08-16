@@ -16,7 +16,7 @@ unregPlugin = MyPlugin Map.empty trans "unreg"
     trans (chan, nick, msg) = do
       now <- liftIO getCurrentTime
       mtime <- gets $ Map.lookup nick
-      let sayit = maybe True (\time -> now `diffUTCTime` time > 60 * 60) mtime
+      let sayit = maybe True (\time -> now `diffUTCTime` time > 60) mtime
       if sayit then do
         modify $ Map.insert nick now
         return [ nick ++ ": " ++ message ]
