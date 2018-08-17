@@ -19,6 +19,7 @@ import           Text.Regex.TDFA
 
 import           Data.Time
 import           Utils
+import           Data.List
 
 import qualified Data.Text                 as Text
 
@@ -75,6 +76,10 @@ data ParseType = Hash | Link deriving Show
 
 data ParsedIssue = ParsedIssue ParseType Owner Repo Int deriving Show
 
+sameIssue :: ParsedIssue -> ParsedIssue -> Bool
+sameIssue (ParsedIssue _ owner1 repo1 num1) (ParsedIssue _ owner2 repo2 num2) =
+  owner1 == owner2 && repo1 == repo2 && num1 == num2
+
 parseIssues :: Settings -> String -> [ParsedIssue]
 parseIssues Settings { defOwner, defRepo } = map extract . match prRegex
   where
@@ -103,7 +108,7 @@ prReplies settings@Settings { prFilter } input = do
   manager <- liftIO $ newManager tlsManagerSettings
   catMaybes <$> mapM (fetchInfo manager settings) filtered
   where
-    filtered = filter prFilter $ parseIssues settings input
+    filtered = filter prFilter . nubBy sameIssue . parseIssues settings $ input
 
 prPlugin :: (MonadLogger m, MonadIO m) => Settings -> MyPlugin () m
 prPlugin settings = MyPlugin () trans "pr"
