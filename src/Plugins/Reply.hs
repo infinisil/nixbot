@@ -41,7 +41,7 @@ replyPlugin = MyPlugin Map.empty trans "reply"
         let sayit = maybe True (\time -> now `diffUTCTime` time > 60 * 5) mtime
         if sayit then do
           modify $ Map.insert reply now
-          return [ nick ++ ": " ++ reply ]
+          return [ reply ]
         else return []
 
     trans _                      = return []
