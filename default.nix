@@ -9,10 +9,12 @@ let
 
   src = fetchGit ./.;
 
-  nixbot = pkgs.haskellPackages.callCabal2nix "nixbot" src {};
+  hpkgs = pkgs.haskellPackages;
+
+  nixbot = hpkgs.callCabal2nix "nixbot" src {};
 
   # Once developPackage allows the use of a source filter, this can be used instead
-  nixbot' = pkgs.haskellPackages.developPackage {
+  nixbot' = hpkgs.developPackage {
     root = ./.;
   };
 

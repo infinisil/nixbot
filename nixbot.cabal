@@ -45,21 +45,14 @@ executable nixbot
                      , monad-logger
                      , directory
                      , filepath
-                     , optparse-applicative
-                     , htoml-megaparsec
                      , unordered-containers
                      , megaparsec
-                     , network
-                     , monad-stm
                      , process
                      , data-default
-                     , template-haskell
                      , file-embed
-                     , hnix
                      , versions
                      , either
                      , http-client
                      , http-types
                      , http-client-tls
-                     , store
                      , time
