@@ -16,5 +16,9 @@ let
     root = ./.;
   };
 
+  shellDrv = nixbot.env.overrideAttrs (oldAttrs: {
+    buildInputs = [ pkgs.cabal-install ];
+  });
+
 in
-  if pkgs.lib.inNixShell then nixbot.env else nixbot
+  if pkgs.lib.inNixShell then shellDrv else nixbot
