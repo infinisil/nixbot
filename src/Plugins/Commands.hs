@@ -99,7 +99,7 @@ byBestNames names = bestsStripped
     chooseBestVersion :: [(String, String)] -> String
     chooseBestVersion pairs = fst . last $ y
       where
-        x = map (\(l, r) -> (l, rightToMaybe . parseV . Text.pack $ r)) pairs
+        x = map (\(l, r) -> (l, rightToMaybe . versioning . Text.pack $ r)) pairs
         y = sortBy (\(lattr, lvers) (rattr, rvers) ->
                       compare (length rattr) (length lattr)
                    ) x
