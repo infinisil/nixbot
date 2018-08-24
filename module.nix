@@ -17,7 +17,7 @@
     after = [ "network.target" ];
     script = ''
       export PATH="${lib.makeBinPath (with pkgs; [ gnutar gzip ])}:$PATH"
-      ${import ./default.nix { inherit pkgs; }}/bin/nixbot ${./release.nix}
+      ${import ./default.nix {}}/bin/nixbot ${./release.nix}
     '';
     serviceConfig = {
       User = "nixbot";

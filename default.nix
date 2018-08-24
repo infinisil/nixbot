@@ -3,33 +3,24 @@
     sha256 = "0r3c00m96ldb9z81ay7vj8gnpk4bf8gjcdiad7mgxvwxr9ndskjx";
   }
 , pkgs ? import nixpkgs {}
-, lib ? pkgs.lib
 }:
 
 let
 
-  hpkgs = (import ./stack2nix.nix { inherit pkgs; }).override {
-    overrides = self: super: {
-      hnix = pkgs.haskell.lib.overrideCabal super.hnix (oldAttrs: {
-        libraryHaskellDepends = oldAttrs.libraryHaskellDepends ++ [
-          self.compact
-        ];
-      });
-    };
+  src = fetchGit ./.;
+
+  hpkgs = pkgs.haskellPackages;
+
+  nixbot = hpkgs.callCabal2nix "nixbot" src {};
+
+  # Once developPackage allows the use of a source filter, this can be used instead
+  nixbot' = hpkgs.developPackage {
+    root = ./.;
   };
 
-  src = builtins.filterSource (absName: type: let
-    name = lib.removePrefix "${toString ./.}/" absName;
-  in ! (lib.hasSuffix ".stack-work" name
-    || lib.hasSuffix ".git" name
-    || name == "state"
-    || name == "result"
-    || (lib.hasSuffix ".nix" name && ! lib.hasPrefix "hnix" name && ! (name == "options.nix")))
-  ) ./.;
-
-  nixbot = hpkgs.nixbot.overrideAttrs (oldAttrs: {
-    inherit src;
+  shellDrv = nixbot.env.overrideAttrs (oldAttrs: {
+    buildInputs = [ pkgs.cabal-install ];
   });
 
 in
-  nixbot
+  if pkgs.lib.inNixShell then shellDrv else nixbot

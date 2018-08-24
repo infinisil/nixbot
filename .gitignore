@@ -1,9 +1,9 @@
 TAGS
-.stack-work
 config.nix
 release.nix
-result
+result*
+.ghc.environment.*
 dist
-state
+dist-newstyle
 **/#*#
 **/.#*
