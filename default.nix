@@ -19,7 +19,7 @@ let
   };
 
   shellDrv = nixbot.env.overrideAttrs (oldAttrs: {
-    buildInputs = [ pkgs.cabal-install ];
+    buildInputs = [ hpkgs.cabal-install ];
   });
 
 in
