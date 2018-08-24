@@ -13,14 +13,9 @@ let
 
   nixbot = hpkgs.callCabal2nix "nixbot" src {};
 
-  # Once developPackage allows the use of a source filter, this can be used instead
-  nixbot' = hpkgs.developPackage {
-    root = ./.;
-  };
-
   shellDrv = nixbot.env.overrideAttrs (oldAttrs: {
     buildInputs = [ hpkgs.cabal-install ];
   });
 
 in
-  if pkgs.lib.inNixShell then shellDrv else nixbot
+  if pkgs.lib.inNixShell && builtins.getEnv "DIRENV_DIR" == "" then shellDrv else nixbot
