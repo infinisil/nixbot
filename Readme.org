@@ -2,7 +2,6 @@
 
 ** Todo
 
-- Don't rely on stack and make my HIE work with cabal (maybe new-style commands)
 - Detach nix repl from IRC part, into own package
   - Implement the makeExtensible based nix repl approach
   - Have different nix evaluation strategies (hnix or nix-instantiate). Maybe use this to check whether hnix works correctly
@@ -14,6 +13,11 @@
 - Implement different frontends (amqp/IRC/pure)
 - Add tests
 - Better plugin interface
+- Add NUR
+- Add support for building stuff
+
+*** Done
+- Don't rely on stack and make my HIE work with cabal (maybe new-style commands)
 
 * Ideas
 
