@@ -1,21 +1,9 @@
-{ nixpkgs ? builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/7db611f2af869bac6e31ba814a5593c52d54ec19.tar.gz";
-    sha256 = "0yp97ayg3bbi2bm2sgvjhrrmc73hqpv4cymm7gb49mmqjwg5fzws";
-  }
-, pkgs ? import nixpkgs {}
+{ pkgs ? import (fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/ca2ba44cab47767c8127d1c8633e2b581644eb8f.tar.gz";
+    sha256 = "1jg7g6cfpw8qvma0y19kwyp549k1qyf11a5sg6hvn6awvmkny47v";
+  }) {}
 }:
-
-let
-
-  src = fetchGit ./.;
-
-  hpkgs = pkgs.haskellPackages;
-
-  nixbot = hpkgs.callCabal2nix "nixbot" src {};
-
-  shellDrv = nixbot.env.overrideAttrs (oldAttrs: {
-    buildInputs = [ hpkgs.cabal-install ];
-  });
-
-in
-  if pkgs.lib.inNixShell && builtins.getEnv "DIRENV_DIR" == "" then shellDrv else nixbot
+pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
+  nixbot = ./.;
+  nix-session = ./nix-session;
+})
