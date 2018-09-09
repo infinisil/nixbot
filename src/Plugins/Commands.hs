@@ -114,7 +114,7 @@ refinePackageList packages = do
   liftIO $ print $ "Called with " ++ show packages
   let nixattrs = "[" ++ concatMap (\p -> "[" ++ concatMap (\a -> "\"" ++ a ++ "\"") (splitAttrPath p ++ ["name"]) ++ "]") packages ++ "]"
   result <- nixInstantiate def
-    { contents = "with import <nixpkgs> {}; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
+    { contents = "with import <nixpkgs> { config = { allowUnfree = true; allowBroken = true; allowUnsupportedSystem = true; }; }; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
     , mode = Json
     , attributes = []
     , nixPath = [ "nixpkgs=/var/lib/nixbot/state/nixpkgs" ]
