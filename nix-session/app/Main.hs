@@ -3,4 +3,4 @@ module Main where
 import           Nix.Session
 
 main :: IO ()
-main = putStrLn foo
+main = putStrLn "hi"
