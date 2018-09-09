@@ -1,5 +1,10 @@
 * Nixbot
 
+HIE: What do if I get an error about "package ... cannot be satisfied"?
+- Delete any .ghc.environment* files from using cabal new-build See https://github.com/haskell/haskell-ide-engine/issues/775
+- cabal update (cabal configure too maybe)
+
+
 ** Todo
 
 - Detach nix repl from IRC part, into own package
