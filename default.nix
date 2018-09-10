@@ -19,7 +19,15 @@ in
 { pkgs ? import nixpkgs {}
 }:
 
-pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
+(pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
   nixbot = ./.;
   nix-session = ./nix-session;
+})).extend (self: super: {
+  hnix = pkgs.haskell.lib.overrideSrc super.hnix {
+    # https://github.com/haskell-nix/hnix/pull/360
+    src = fetchTarball {
+      url = "https://github.com/infinisil/hnix/archive/9a74e0cd99065533a878f6442b8391904a9b53b1.tar.gz";
+      sha256 = "13qnc1fmizkayfck1ym0xl6d013z5097p1lifb40vc4awcmm3xg2";
+    };
+  };
 }) // { inherit pkgs; }
