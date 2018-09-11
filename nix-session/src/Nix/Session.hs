@@ -1,36 +1,105 @@
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
 module Nix.Session where
 
-import           Control.Monad.State
-import           Data.Map            (Map)
-import qualified Data.Map            as Map
-import           Data.Text           (Text)
+import           Data.Fix
+import           Data.Set                     (Set, (\\))
+import qualified Data.Set                     as Set
+import           Data.Text                    (Text, unpack)
+
+import           Data.List.NonEmpty           (NonEmpty (..))
+import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
+                                               renderCompact)
+
+import           Nix.Expr
+import           Nix.Pretty
+
+--data Assignment = Assignment
+--  { ident   :: Text
+--  , assExpr :: Text
+--  , assDeps :: [Assignment]
+--  }
+--
+--data Evaluation = Evaluation
+--  { evalExpr :: Text
+--  , evalDeps :: [Assignment]
+--  }
+
+allAssigns :: Set Text -> [Binding NExpr] -> Either String [(Text, NExpr)]
+allAssigns set bindings = concat <$> mapM (toSymAssigns set) bindings
+
+toSymAssigns :: Set Text -> Binding NExpr -> Either String [(Text, NExpr)]
+toSymAssigns _ (Inherit Nothing _ _) = Left "Inherits need a scope"
+toSymAssigns _ (Inherit (Just scope) keys pos) = Right $ map inherit keys
+  where inherit (StaticKey varname) = (varname, Fix (NSelect scope (StaticKey varname :| []) Nothing))
+        inherit (DynamicKey _) = error "Shouldn't get here, inherits from dynamic keys shouldn't be possible"
+toSymAssigns _ (NamedVar (DynamicKey _ :| _) _ _) = Left "Assignments to dynamic keys are disallowed"
+toSymAssigns _ (NamedVar (StaticKey varname :| []) expr _) = return [(varname, expr)]
+toSymAssigns vars (NamedVar (StaticKey varname :| path@(p:ps)) expr pos)
+  | Set.member varname vars = Right [(varname, mkOper2 NUpdate (mkSym varname) (thing (mkSym varname) origPath ass))]
+  | otherwise = return [(varname, set)]
+    where
+      binding = NamedVar (p :| ps) expr pos
+      set = mkNonRecSet [binding]
+
+      origPath = init path
+      ass = mkNonRecSet [NamedVar (last path :| []) expr pos]
+
+      thing :: NExpr -> [NKeyName NExpr] -> NExpr -> NExpr
+      thing orig [] ass = ass
+      thing orig (p:ps) ass = mkNonRecSet . (:[]) $
+        NamedVar (p :| []) (mkIf ifCond ifThen ifElse) pos
+        where
+          ifCond = Fix (NHasAttr orig (p :| []))
+          selected = Fix (NSelect orig (p :| []) Nothing)
+          ifThen = mkOper2 NUpdate selected (thing selected ps ass)
+          ifElse = case ps of
+            []       -> ass
+            (pp:pps) -> mkNonRecSet . (:[]) $ NamedVar (pp :| pps) ass pos
+
+printExpr :: NExpr -> String
+printExpr expr = displayS (fun (renderCompact (prettyNix expr))) ""
+  where
+    fun SFail                = SFail
+    fun SEmpty               = SEmpty
+    fun (SChar char doc)     = SChar char $ fun doc
+    fun (SText len text doc) = SText len text $ fun doc
+    fun (SLine len doc)      = SChar ' ' $ fun doc
+    fun (SSGR sgr doc)       = SSGR sgr $ fun doc
 
 
-data Assignment = Assignment
-  { ident        :: Text
-  , expression   :: Text
-  , dependencies :: [Assignment]
-  }
+      --thing orig [] expr = expr
+      --thing orig (p:ps) expr = mkOper2 NUpdate orig set'
+      --  where
+      --    set' = mkNonRecSet [bind]
+      --    bind = NamedVar (p :| []) if' undefined
+      --    if' = mkIf (Fix (NHasAttr orig (p :| []))) (thing (Fix (NSelect orig (p :| []) Nothing)) ps expr) undefined
 
-start :: Map Text Assignment
-start = Map.empty
 
-foodefined = Map.singleton "foo" (Assignment "foo" "1" [])
+--parse :: Text -> Result Input
+--parse input = if isAssignmentParser `canParse` input
+--  then Assignments <$> parseAssign input
+--  else Evaluation <$> parseEval input
+--  where isAssignmentParser = whiteSpace *> nixSelector *> symbol "="
 
-data ReadOnly
-data ReadWrite
 
-data Request = Ping
-             deriving Show
-data Reply = Pong
-           deriving Show
 
-data SessionState = SessionState
+--instance Show Input where
+--  show (Evaluation expr) = displayS (renderCompact (prettyNix (stripAnnotation expr))) ""
+--  show (Assignments bindings) = intercalate ", " (map showBinding bindings)
+--    where
+--      showBinding :: Binding NExprLoc -> String
+--      showBinding (NamedVar path val _) = pp ++ " = " ++ w
+--        where
+--          x = stripAnnotation val
+--          y = prettyNix x
+--          w = displayS (renderCompact y) ""
+--          p = prettySelector (fmap (fmap (simpleExpr . prettyNix . stripAnnotation)) path)
+--          pp = displayS (renderCompact p) ""
+--      showBinding (Inherit scope keys _) = "inherit " ++ pScope scope ++ k
+--        where
+--          pScope Nothing = ""
+--          pScope (Just n) = "(" ++ displayS (renderCompact (prettyNix (stripAnnotation n))) "" ++ ") "
+--          k = intercalate " " (map prettyKey keys)
 
-runCommand :: Request -> State SessionState Reply
-runCommand Ping = return Pong
-
+    --          prettyKey (StaticKey name) = unpack name
 
 

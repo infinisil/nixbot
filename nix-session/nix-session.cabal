@@ -17,6 +17,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Nix.Session
+                       Nix.Session.Input
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
@@ -24,7 +25,14 @@ library
                      , containers
                      , text
                      , hnix
+                     , parser-combinators
+                     , megaparsec
+                     , data-fix
+                     , ansi-wl-pprint
+                     , process
+                     , directory
   hs-source-dirs:      src
+  default-extensions:          OverloadedStrings
   default-language:    Haskell2010
 
 executable nix-session
