@@ -24,10 +24,10 @@ in
   nix-session = ./nix-session;
 })).extend (self: super: {
   hnix = pkgs.haskell.lib.overrideSrc super.hnix {
-    # https://github.com/haskell-nix/hnix/pull/360
+    # https://github.com/haskell-nix/hnix/pull/363
     src = fetchTarball {
-      url = "https://github.com/infinisil/hnix/archive/9a74e0cd99065533a878f6442b8391904a9b53b1.tar.gz";
-      sha256 = "13qnc1fmizkayfck1ym0xl6d013z5097p1lifb40vc4awcmm3xg2";
+      url = "https://github.com/infinisil/hnix/archive/c723e73a415fa68d12baac88140d685424adac4f.tar.gz";
+      sha256 = "15fnylxm29izxvf7mf7f4y60spi2hgs72lkf53an8wk7is5v434f";
     };
   };
 }) // { inherit pkgs; }
