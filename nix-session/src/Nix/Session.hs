@@ -1,8 +1,11 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns   #-}
+{-# LANGUAGE TemplateHaskell  #-}
 
 module Nix.Session where
 
 import           Data.Fix
+import           Data.Foldable                (traverse_)
 import           Data.Map                     (Map)
 import qualified Data.Map                     as Map
 import           Data.Sequence
@@ -21,54 +24,151 @@ import           Data.List.NonEmpty           (NonEmpty (..))
 import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
 
+import           Control.Monad.Except
+import           Control.Monad.State
+
 import           Nix.Expr
 import           Nix.Parser
 import           Nix.Pretty
 import           Nix.TH
 
-data Definition = Definition
-  { var  :: VarName
-  , expr :: Text
-  , env  :: IntSet
-  , uses :: Int
+import           Nix.Session.Input
+
+import           Control.Lens                 hiding (uses)
+
+data Expression = Expression
+  { expr    :: Text
+  , depends :: Map VarName Int
+  , uses    :: Int
   } deriving Show
 
-type NixEnv = (Int, IntMap Definition, Map VarName Int)
-
-start :: NixEnv
-start = (0, IntMap.empty, Map.empty)
-
-insert :: VarName -> NExpr -> NixEnv -> NixEnv
-insert var expr (n, defs, env) = (n + 1, newDefs'', newEnv)
-  where
-    deps = IntSet.fromList . Map.elems . Map.restrictKeys env . freeVars $ expr
-    def = Definition
-      { var = var
-      , expr = Text.pack $ printExpr expr
-      , env = deps
-      , uses = 1
-      }
-    increaseUse d@Definition { uses } = d { uses = uses + 1 }
-    -- Increase all dependencies uses by one
+data NixEnv = NixEnv
+  { defCount    :: Int
+  , definitions :: IntMap Expression
+  , scope       :: Map VarName Int
+  } deriving Show
 
 
-    newDefs = IntSet.foldl (\s i -> IntMap.adjust increaseUse i s) defs deps
-    -- If we have overwritten a variable in the env, decrease the old definitions use by one
-    -- TODO: Remove unused definitions with propagation
-    newDefs' = maybe id decrease (Map.lookup var env) newDefs
+increase :: MonadState NixEnv m => Int -> m ()
+increase key = do
+  defs <- gets definitions
+  let newDefs = IntMap.adjust (\e@Expression { uses } -> e { uses = uses + 1 }) key defs
+  modify $ \env -> env { definitions = newDefs }
+
+decrease :: MonadState NixEnv m => Int -> m ()
+decrease key = do
+  m <- gets definitions
+  case IntMap.lookup key m of
+    Nothing -> return ()
+    Just Expression { uses = 0, depends } -> do
+      modify $ \env -> env { definitions = IntMap.delete key (definitions env) }
+      traverse_ decrease depends
+    Just e@Expression { uses } ->
+      modify $ \env -> env { definitions = IntMap.insert key e { uses = uses - 1 } (definitions env) }
+
+trans :: MonadState NixEnv m => VarName -> NExpr -> m ()
+trans var expr = do
+  env@NixEnv { defCount, scope } <- get
+  let deps = scope `Map.restrictKeys` freeVars expr
+  let text = Text.pack $ printExpr expr
+  let e = Expression text deps 0
+  traverse_ increase deps
+  case Map.lookup var scope of
+    Nothing  -> return ()
+    Just key -> decrease key
+  modify $ \env -> NixEnv
+    { defCount = defCount + 1
+    , definitions = IntMap.insert defCount e (definitions env)
+    , scope = Map.insert var defCount scope }
+  return ()
+
+main :: IO ()
+main = evalStateT test (NixEnv 0 IntMap.empty Map.empty)
+
+test :: (MonadIO m, MonadState NixEnv m) => m ()
+test = do
+  line <- Text.pack <$> liftIO getLine
+  parsed <- runExceptT $ parseInput line
+  case parsed of
+    Left err -> liftIO $ print err
+    Right (Nix (Assignments bindings)) -> do
+      definedVars <- Map.keysSet <$> gets scope
+      case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
+        Left err      -> liftIO $ putStrLn err
+        Right assigns -> traverse_ (uncurry trans) assigns
+    Right (Nix (Evaluation expr)) -> undefined
+    Right _ -> liftIO $ putStrLn "Doing nothing"
+  s <- get
+  liftIO $ print s
+  test
 
 
-    newDefs'' = IntMap.insert n def newDefs'
-    newEnv = Map.insert var n env
+
+--start :: NixEnv
+--start = (0, IntMap.empty, Map.empty)
+--
+--insert :: VarName -> NExpr -> NixEnv -> NixEnv
+--insert var expr (n, defs, envv) = (n + 1, newDefs'', newEnv)
+--  where
+--    imDeps = IntSet.fromList . Map.elems . Map.restrictKeys envv . freeVars $ expr
+--    deps = IntSet.foldl' (\acc i -> IntSet.union acc . maybe IntSet.empty depends . IntMap.lookup i $ defs) imDeps imDeps
+--    def = Definition
+--      { var = var
+--      , expr = Text.pack $ printExpr expr
+--      , free = freeVars expr
+--      , depends = deps
+--      , uses = 1
+--      }
+--    increaseUse d@Definition { uses } = d { uses = uses + 1 }
+--    -- Increase all dependencies uses by one
+--
+--
+--    newDefs = IntSet.foldl (\s i -> IntMap.adjust increaseUse i s) defs deps
+--    -- If we have overwritten a variable in the env, decrease the old definitions use by one
+--    -- TODO: Remove unused definitions with propagation
+--    newDefs' = maybe id decrease (Map.lookup var envv) newDefs
+--
+--
+--    newDefs'' = IntMap.insert n def newDefs'
+--    newEnv = Map.insert var n envv
+--
+--deleteDef :: Int -> IntMap Definition -> IntMap Definition
+--deleteDef key map = case IntMap.lookup key map of
+--  Nothing -> map
+--  Just Definition { depends } -> IntMap.delete key res
+--    where
+--      res = IntSet.foldl (\m i -> decrease i m) map depends
+--
+--decrease :: Int -> IntMap Definition -> IntMap Definition
+--decrease key map = case IntMap.lookup key map of
+--  Nothing -> map
+--  Just Definition { uses = 1, depends } -> IntMap.delete key res
+--    where
+--      res = IntSet.foldl (\m i -> decrease i m) map depends
+--  Just def@Definition { uses } -> IntMap.insert key def { uses = uses - 1 } map
+--
+--depNames :: IntMap Definition -> Definition -> Set VarName
+--depNames m Definition { depends } = undefined var depends
+--
+--conflicts :: Definition -> Definition -> Bool
+--conflicts Definition { free = lf } Definition { free = rf } = undefined
+--
+--eval :: NixEnv -> NExpr -> ()
+--eval (_, defs, env) expr = undefined
+--  where
+--    imDeps = Map.elems . Map.restrictKeys env . freeVars $ expr
+--    trans = foldl (\acc i -> acc `IntSet.union` maybe IntSet.empty depends (IntMap.lookup i defs)) IntSet.empty imDeps
+--    toRemove = IntMap.keysSet defs IntSet.\\ trans
+--    new = IntSet.foldl (\d s -> deleteDef s d) defs toRemove
+--
+--    unused :: IntMap Definition -> IntSet
+--    unused = IntMap.keysSet . IntMap.filter (\Definition { uses } -> uses == 1)
+--
+--    select :: IntMap Definition -> IntSet -> IntSet
+--    select map set = fst $ IntSet.foldl (\(ai, as) el -> if Set.null (as `Set.intersection` maybe Set.empty free (IntMap.lookup el map)) then (IntSet.insert el ai, as `Set.union` maybe Set.empty free (IntMap.lookup el map)) else (ai, as)) (IntSet.empty, Set.empty) set
+--      where
 
 
-decrease :: Int -> IntMap Definition -> IntMap Definition
-decrease key map = case IntMap.lookup key map of
-  Nothing -> map
-  Just Definition { uses = 1, env } -> IntMap.delete key res
-    where
-      res = IntSet.foldl (\m i -> decrease i m) map env
-  Just def@Definition { uses } -> IntMap.insert key def { uses = uses - 1 } map
 
 --insert :: VarName -> NExpr -> VarEnv -> VarEnv
 --insert var expr env = Map.insert var def env

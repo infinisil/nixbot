@@ -31,6 +31,7 @@ library
                      , ansi-wl-pprint
                      , process
                      , directory
+                     , lens
   hs-source-dirs:      src
   default-extensions:          OverloadedStrings
   default-language:    Haskell2010
