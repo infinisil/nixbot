@@ -1,22 +1,89 @@
+{-# LANGUAGE NamedFieldPuns #-}
+
 module Nix.Session where
 
 import           Data.Fix
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
+import           Data.Sequence
+import qualified Data.Sequence                as Seq
 import           Data.Set                     (Set, (\\))
 import qualified Data.Set                     as Set
-import           Data.Text                    (Text, unpack)
+import           Data.Text                    (Text)
+import qualified Data.Text                    as Text
+
+import           Data.IntMap                  (IntMap)
+import qualified Data.IntMap                  as IntMap
+import           Data.IntSet                  (IntSet)
+import qualified Data.IntSet                  as IntSet
 
 import           Data.List.NonEmpty           (NonEmpty (..))
 import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
 
 import           Nix.Expr
+import           Nix.Parser
 import           Nix.Pretty
+import           Nix.TH
 
---data Assignment = Assignment
---  { ident   :: Text
---  , assExpr :: Text
---  , assDeps :: [Assignment]
---  }
+data Definition = Definition
+  { expr :: Text
+  , env  :: VarEnv -- Can we make this Set Int?
+  , uses :: Int
+  } deriving Show
+
+type VarEnv = Map VarName Int
+
+type NixEnv = (Int, IntMap Definition, VarEnv)
+
+start :: NixEnv
+start = (0, IntMap.empty, Map.empty)
+
+insert :: VarName -> NExpr -> NixEnv -> NixEnv
+insert var expr (n, defs, env) = (n + 1, newDefs'', newEnv)
+  where
+    free = freeVars expr
+    deps = Map.restrictKeys env free
+    def = Definition
+      { expr = Text.pack $ printExpr expr
+      , env = deps
+      , uses = 1
+      }
+    increaseUse d@Definition { uses } = d { uses = uses + 1 }
+    -- Increase all dependencies uses by one
+
+    newDefs = foldl (\s i -> IntMap.adjust increaseUse i s) defs (Map.elems deps)
+    -- If we have overwritten a variable in the env, decrease the old definitions use by one
+    -- TODO: Remove unused definitions with propagation
+    newDefs' = maybe id decrease (Map.lookup var env) newDefs
+
+
+    newDefs'' = IntMap.insert n def newDefs'
+    newEnv = Map.insert var n env
+
+
+decrease :: Int -> IntMap Definition -> IntMap Definition
+decrease key map = case IntMap.lookup key map of
+  Nothing -> map
+  Just Definition { uses = 1, env } -> IntMap.delete key res
+    where
+      res = foldl (\m i -> decrease i m) map (Map.elems env)
+  Just def@Definition { uses } -> IntMap.insert key def { uses = uses - 1 } map
+
+--insert :: VarName -> NExpr -> VarEnv -> VarEnv
+--insert var expr env = Map.insert var def env
+--  where
+--    freePlusSelf = Set.insert var $ freeVars expr
+--    deps = Map.restrictKeys env freePlusSelf
+--    def = Definition (Text.pack $ printExpr expr) deps
+
+
+doNix :: Text -> NExpr
+doNix input = case parseNixText input of
+  Success expr -> expr
+  Failure doc  -> error (show doc)
+--s0 = return Map.empty
+--s1 = insert <*> undefined
 --
 --data Evaluation = Evaluation
 --  { evalExpr :: Text
