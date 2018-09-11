@@ -27,14 +27,13 @@ import           Nix.Pretty
 import           Nix.TH
 
 data Definition = Definition
-  { expr :: Text
-  , env  :: VarEnv -- Can we make this Set Int?
+  { var  :: VarName
+  , expr :: Text
+  , env  :: IntSet
   , uses :: Int
   } deriving Show
 
-type VarEnv = Map VarName Int
-
-type NixEnv = (Int, IntMap Definition, VarEnv)
+type NixEnv = (Int, IntMap Definition, Map VarName Int)
 
 start :: NixEnv
 start = (0, IntMap.empty, Map.empty)
@@ -42,17 +41,18 @@ start = (0, IntMap.empty, Map.empty)
 insert :: VarName -> NExpr -> NixEnv -> NixEnv
 insert var expr (n, defs, env) = (n + 1, newDefs'', newEnv)
   where
-    free = freeVars expr
-    deps = Map.restrictKeys env free
+    deps = IntSet.fromList . Map.elems . Map.restrictKeys env . freeVars $ expr
     def = Definition
-      { expr = Text.pack $ printExpr expr
+      { var = var
+      , expr = Text.pack $ printExpr expr
       , env = deps
       , uses = 1
       }
     increaseUse d@Definition { uses } = d { uses = uses + 1 }
     -- Increase all dependencies uses by one
 
-    newDefs = foldl (\s i -> IntMap.adjust increaseUse i s) defs (Map.elems deps)
+
+    newDefs = IntSet.foldl (\s i -> IntMap.adjust increaseUse i s) defs deps
     -- If we have overwritten a variable in the env, decrease the old definitions use by one
     -- TODO: Remove unused definitions with propagation
     newDefs' = maybe id decrease (Map.lookup var env) newDefs
@@ -67,7 +67,7 @@ decrease key map = case IntMap.lookup key map of
   Nothing -> map
   Just Definition { uses = 1, env } -> IntMap.delete key res
     where
-      res = foldl (\m i -> decrease i m) map (Map.elems env)
+      res = IntSet.foldl (\m i -> decrease i m) map env
   Just def@Definition { uses } -> IntMap.insert key def { uses = uses - 1 } map
 
 --insert :: VarName -> NExpr -> VarEnv -> VarEnv
