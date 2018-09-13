@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase       #-}
 {-# LANGUAGE NamedFieldPuns   #-}
 {-# LANGUAGE TemplateHaskell  #-}
 
@@ -54,7 +55,6 @@ data NixEnv = NixEnv
   } deriving (Show, Read)
 
 makeLenses ''Expression
-
 makeLenses ''NixEnv
 
 increase :: MonadState NixEnv m => Int -> m ()
@@ -62,14 +62,12 @@ increase key = definitions . ix key . numUses += 1
 
 --
 decrease :: MonadState NixEnv m => Int -> m ()
-decrease key = do
-  expr <- use $ definitions . at key
-  case expr of
-    Nothing -> return ()
-    Just Expression { _numUses = 0, _depends } -> do
-      definitions . at key .= Nothing
-      traverse_ decrease _depends
-    Just _ -> definitions . ix key . numUses -= 1
+decrease key = use (definitions . at key) >>= \case
+  Nothing -> return ()
+  Just Expression { _numUses = 0, _depends } -> do
+    definitions . at key .= Nothing
+    traverse_ decrease _depends
+  Just Expression { _numUses } -> definitions . ix key . numUses .= _numUses - 1
 
 trans :: MonadState NixEnv m => VarName -> NExpr -> m ()
 trans var expr = do
