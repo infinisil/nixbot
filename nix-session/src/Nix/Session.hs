@@ -21,11 +21,15 @@ import           Data.IntSet                  (IntSet)
 import qualified Data.IntSet                  as IntSet
 
 import           Data.List.NonEmpty           (NonEmpty (..))
+import           Data.Maybe
+import           System.Directory
+import           System.Process               hiding (Inherit)
 import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
 
 import           Control.Monad.Except
 import           Control.Monad.State
+import           System.Exit
 
 import           Nix.Expr
 import           Nix.Parser
@@ -37,70 +41,91 @@ import           Nix.Session.Input
 import           Control.Lens                 hiding (uses)
 
 data Expression = Expression
-  { expr    :: Text
-  , depends :: Map VarName Int
-  , uses    :: Int
-  } deriving Show
+  { _varname :: VarName
+  , _expr    :: Text
+  , _depends :: Map VarName Int
+  , _numUses :: Int
+  } deriving (Show, Read)
 
 data NixEnv = NixEnv
-  { defCount    :: Int
-  , definitions :: IntMap Expression
-  , scope       :: Map VarName Int
-  } deriving Show
+  { _defCount    :: Int
+  , _definitions :: IntMap Expression
+  , _scope       :: Map VarName Int
+  } deriving (Show, Read)
 
+makeLenses ''Expression
+
+makeLenses ''NixEnv
 
 increase :: MonadState NixEnv m => Int -> m ()
-increase key = do
-  defs <- gets definitions
-  let newDefs = IntMap.adjust (\e@Expression { uses } -> e { uses = uses + 1 }) key defs
-  modify $ \env -> env { definitions = newDefs }
+increase key = definitions . ix key . numUses += 1
 
+--
 decrease :: MonadState NixEnv m => Int -> m ()
 decrease key = do
-  m <- gets definitions
-  case IntMap.lookup key m of
+  expr <- use $ definitions . at key
+  case expr of
     Nothing -> return ()
-    Just Expression { uses = 0, depends } -> do
-      modify $ \env -> env { definitions = IntMap.delete key (definitions env) }
-      traverse_ decrease depends
-    Just e@Expression { uses } ->
-      modify $ \env -> env { definitions = IntMap.insert key e { uses = uses - 1 } (definitions env) }
+    Just Expression { _numUses = 0, _depends } -> do
+      definitions . at key .= Nothing
+      traverse_ decrease _depends
+    Just _ -> definitions . ix key . numUses -= 1
 
 trans :: MonadState NixEnv m => VarName -> NExpr -> m ()
 trans var expr = do
-  env@NixEnv { defCount, scope } <- get
-  let deps = scope `Map.restrictKeys` freeVars expr
-  let text = Text.pack $ printExpr expr
-  let e = Expression text deps 0
+  -- The dependencies of the expression are all definitions in scope limited to the free variables of the expression
+  -- Because only the free variables might have an influence on it.
+  deps <- Map.restrictKeys <$> use scope <*> pure (freeVars expr)
   traverse_ increase deps
-  case Map.lookup var scope of
-    Nothing  -> return ()
-    Just key -> decrease key
-  modify $ \env -> NixEnv
-    { defCount = defCount + 1
-    , definitions = IntMap.insert defCount e (definitions env)
-    , scope = Map.insert var defCount scope }
-  return ()
+  use (scope . at var) >>= maybe (return ()) decrease
 
-main :: IO ()
-main = evalStateT test (NixEnv 0 IntMap.empty Map.empty)
+  let text = Text.pack $ printExpr expr
+  let e = Expression var text deps 0
 
-test :: (MonadIO m, MonadState NixEnv m) => m ()
-test = do
-  line <- Text.pack <$> liftIO getLine
+  defId <- use defCount
+  defCount += 1
+  definitions %= IntMap.insert defId e
+  scope %= Map.insert var defId
+
+eval :: (MonadIO m, MonadState NixEnv m) => NExpr -> m String
+eval expr = do
+  defs <- use definitions
+  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (self: super: with super; { " <> _varname <> " = " <> _expr <> "; })") "\n\t\tlib.makeExtensible (self: {})" defs
+
+
+  let final = Text.unpack $ "let\n\tpkgs = import <nixpkgs> {};\n\tlib = pkgs.lib;\n\tself = " <> chain <> "; in with self;\n" <> Text.pack (printExpr expr)
+
+  liftIO $ putStrLn final
+  -- TODO: Make a read env to save this
+  nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
+  let args = ["--eval", "-E", final ]
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiateExe args ""
+  case exitCode of
+    ExitSuccess   -> return stdout
+    ExitFailure _ -> return stderr
+
+startState = NixEnv 0 IntMap.empty Map.empty
+
+
+
+processText :: (MonadIO m, MonadState NixEnv m) => Text -> m String
+processText line = do
   parsed <- runExceptT $ parseInput line
-  case parsed of
-    Left err -> liftIO $ print err
+  result <- case parsed of
+    Left err -> return $ "error: " ++ show err
     Right (Nix (Assignments bindings)) -> do
-      definedVars <- Map.keysSet <$> gets scope
+      definedVars <- Map.keysSet <$> use scope
       case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
-        Left err      -> liftIO $ putStrLn err
-        Right assigns -> traverse_ (uncurry trans) assigns
-    Right (Nix (Evaluation expr)) -> undefined
-    Right _ -> liftIO $ putStrLn "Doing nothing"
+        Left err      -> return err
+        Right assigns -> do
+          traverse_ (uncurry trans) assigns
+          return "Did assign"
+    Right (Nix (Evaluation expr)) -> do
+      eval $ stripAnnotation expr
+    Right _ -> return "Doing nothing"
   s <- get
   liftIO $ print s
-  test
+  return result
 
 
 

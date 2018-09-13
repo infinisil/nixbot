@@ -6,6 +6,7 @@ import           Data.Maybe
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
 
+import           Control.Monad.Combinators
 import           Control.Monad.Except
 import           System.Directory
 import           System.Exit
@@ -13,7 +14,7 @@ import           System.Process               hiding (Inherit)
 
 import           Nix.Expr
 import           Nix.Parser
-import           Text.Megaparsec              (eof)
+import           Text.Megaparsec              (eof, try)
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 data InputError = HNixParseFailure Doc
@@ -38,10 +39,13 @@ parseInput input = case Text.uncons input of
 parseCommand :: Text -> ()
 parseCommand str = ()
 
+isAssignmentParser = whiteSpace *> ((nixSelector *> symbol "=") <|> symbol "inherit")
+
 parseNix :: (MonadIO m, MonadError InputError m) => Text -> m NixAction
-parseNix input = if (whiteSpace *> nixSelector *> symbol "=") `canParse` input
+parseNix input = if isAssignmentParser `canParse` input
   then Assignments <$> parseNixAssign input
   else Evaluation <$> parseNixEval input
+  where
 
 parseNixEval :: (MonadIO m, MonadError InputError m) => Text -> m NExprLoc
 parseNixEval = comparingParse (whiteSpace *> nixToplevelForm <* eof) ("with null; " <>)
@@ -52,6 +56,7 @@ parseNixAssign = comparingParse (whiteSpace *> nixBinders <* eof) (\t -> "with n
 standardNixParse :: (MonadIO m, MonadError String m) => String -> m ()
 standardNixParse input = do
   -- TODO: Make a read env to save this
+  liftIO $ putStrLn $ "Doing nix-instantiate with: " ++ input
   nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
   let args = ["--parse", "-E", input ]
   (exitCode, _, stderr) <- liftIO $ readProcessWithExitCode nixInstantiateExe args ""

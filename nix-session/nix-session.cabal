@@ -42,5 +42,7 @@ executable nix-session
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
                      , nix-session
+                     , text
+                     , mtl
   hs-source-dirs:      app
   default-language:    Haskell2010
