@@ -8,12 +8,14 @@ import           Data.Char
 import           Data.Either
 import           Data.Either.Combinators
 import           Data.List               (findIndex, intercalate, isSuffixOf,
-                                          sortBy)
+                                          minimumBy, sortBy, sortOn)
 import           Data.Map                (Map)
 import qualified Data.Map                as M
 import           Data.Maybe              (catMaybes, fromJust, fromMaybe,
                                           listToMaybe, mapMaybe)
 import           Data.Ord                (comparing)
+import           Data.Set                (Set)
+import qualified Data.Set                as Set
 import qualified Data.Text               as Text
 import           Data.Versions
 import           Plugins
@@ -35,21 +37,18 @@ replyLookup _ (Just arg) (Exact str) = [arg ++ ": " ++ str]
 replyLookup nick Nothing (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", str]
 replyLookup nick (Just arg) (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", arg ++ ": " ++ str]
 
-lookupCommand :: String -> M.Map String String -> LookupResult
-lookupCommand str map = result
-  where
-    filtered =
-      filter ((3 >=) . snd)
-      . sortBy (comparing snd)
-      . fmap (\s -> (s,
-                     levenshteinDistance defaultEditCosts str s)
-             )
-      . filter (\s -> (s == str) || ((>=3) . length $ s))
-      $ if length str <= 3 then (if M.member str map then [str] else []) else M.keys map
-    result = case filtered of
-               []         -> Empty
-               (str, 0):_ -> Exact . fromJust $ M.lookup str map
-               (str, _):_ -> Guess str . fromJust $ M.lookup str map
+lookupCommand :: MonadState (M.Map String (Int, String)) m => String -> m LookupResult
+lookupCommand str = do
+  assos <- map (\(k, (uses, v)) -> (levenshteinDistance defaultEditCosts str k, (k, v))) <$> gets M.assocs
+  let result = if null assos then Nothing else Just $ minimumBy (comparing fst) assos
+  case result of
+    Nothing -> return Empty
+    Just (0, (word, value)) -> do
+      modify $ M.adjust (\(uses, v) -> (uses + 1, v)) word
+      return $ Exact value
+    Just (dist, (word, value)) -> do
+      let isValid = fromIntegral dist / fromIntegral (length word) < 0.34
+      return $ if isValid then Guess word value else Empty
 
 data LocateMode = Generic
                 | Bin
@@ -156,13 +155,19 @@ doNixLocate mode arg = do
         else ", and " ++ show (length rest) ++ " more")
       . splitAt 7 $ packages
 
-commandsPlugin :: MonadIO m => MyPlugin (Map String String) m
+type St = Map String (Int, String)
+
+commandsPlugin :: MonadIO m => MyPlugin St m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (chan, nick, ',':command) = case words command of
       [] -> do
-        keys <- gets M.keys
-        return ["All commands: " ++ unwords keys]
+        els <- gets $ M.assocs . M.map fst
+        let sorted = (' ':) . fst <$> sortBy (flip $ comparing snd) els
+        let res = scanl (++) "Most used commands: " sorted
+        let x = last $ takeWhile ((<456).length) res
+        return [ x ]
+
       "locate":args -> case args of
         [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
         [arg] -> (:[]) <$> doNixLocate Generic arg
@@ -172,20 +177,20 @@ commandsPlugin = MyPlugin M.empty trans "commands"
         _ -> return [",locate only takes 1 or 2 arguments"]
       "tell":args -> return []
       "find":args -> return []
-      [ cmd ] -> replyLookup nick Nothing <$> gets (lookupCommand cmd)
+      [ cmd ] -> replyLookup nick Nothing <$> lookupCommand cmd
       cmd:"=":rest -> case length rest of
           0 -> do
             mvalue <- gets $ M.lookup cmd
             case mvalue of
               Nothing -> return [ cmd ++ " is already undefined" ]
-              Just value -> do
+              Just (_, value) -> do
                 modify (M.delete cmd)
                 return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
           _ -> do
             old <- gets $ M.lookup cmd
-            modify (M.insert cmd (unwords rest))
+            modify $ M.insertWith (\(uses, _) (_, new) -> (uses, new)) cmd (0, unwords rest)
             case old of
               Nothing -> return [ cmd ++ " defined" ]
-              Just val -> return [ cmd ++ " redefined, was defined as: " ++ val ]
-      cmd:args -> replyLookup nick (Just (unwords args)) <$> gets (lookupCommand cmd)
+              Just (_, val) -> return [ cmd ++ " redefined, was defined as: " ++ val ]
+      cmd:args -> replyLookup nick (Just (unwords args)) <$> lookupCommand cmd
     trans (_, _, _) = return []
