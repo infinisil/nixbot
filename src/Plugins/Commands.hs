@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes       #-}
 module Plugins.Commands (commandsPlugin) where
 
 import           Control.Monad.IO.Class
@@ -18,12 +19,14 @@ import           Data.Set                (Set)
 import qualified Data.Set                as Set
 import qualified Data.Text               as Text
 import           Data.Versions
+import           IRC
 import           Plugins
 import           System.Exit
 import           System.Process
 
 import           Data.Aeson
 import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
+import           Text.Read
 
 import           Control.Monad.State
 import           NixEval
@@ -154,6 +157,22 @@ doNixLocate mode arg = do
         then ""
         else ", and " ++ show (length rest) ++ " more")
       . splitAt 7 $ packages
+
+fixed :: Map [String] (String -> [String] -> State St String)
+fixed = M.fromList
+  [ ([], const $ \args -> listCommands (listToMaybe args >>= readMaybe))
+  , (["locate"], const $ \args -> return "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended).")
+  ]
+
+listCommands :: Maybe Int -> State St String
+listCommands mpage = do
+  cmdUses <- gets $ M.assocs . M.map fst
+  let sorted = fst <$> sortBy (flip $ comparing snd) cmdUses
+  let page = fromMaybe 0 mpage
+  return $ paging prefix sorted page
+  where
+    prefix 0 = "All commands sorted by use count, page 0 (use `, <n>` to view page <n>):"
+    prefix n = ""
 
 type St = Map String (Int, String)
 

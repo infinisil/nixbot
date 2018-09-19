@@ -20,7 +20,7 @@ in
 }:
 
 (pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
-  nixbot = ./.;
+  nixbot = fetchGit ./.;
   nix-session = ./nix-session;
 })).extend (self: super: {
   hnix = pkgs.haskell.lib.overrideSrc super.hnix {
