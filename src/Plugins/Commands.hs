@@ -13,7 +13,7 @@ import           Data.List               (findIndex, intercalate, isSuffixOf,
 import           Data.Map                (Map)
 import qualified Data.Map                as M
 import           Data.Maybe              (catMaybes, fromJust, fromMaybe,
-                                          listToMaybe, mapMaybe)
+                                          listToMaybe, mapMaybe, maybeToList)
 import           Data.Ord                (comparing)
 import           Data.Set                (Set)
 import qualified Data.Set                as Set
@@ -26,7 +26,7 @@ import           System.Process
 
 import           Data.Aeson
 import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
-import           Text.Read
+import           Text.Read               (readMaybe)
 
 import           Control.Monad.State
 import           NixEval
@@ -158,21 +158,29 @@ doNixLocate mode arg = do
         else ", and " ++ show (length rest) ++ " more")
       . splitAt 7 $ packages
 
-fixed :: Map [String] (String -> [String] -> State St String)
+fixed :: Map String (String -> [String] -> StateT St IO (Maybe String))
 fixed = M.fromList
-  [ ([], const $ \args -> listCommands (listToMaybe args >>= readMaybe))
-  , (["locate"], const $ \args -> return "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended).")
+  [ ("tell", const $ \args -> return Nothing)
+  , ("find", const $ \args -> return Nothing)
+  , ("locate", const $ \args -> case args of
+    [] -> return $ Just "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."
+    [arg] -> Just <$> doNixLocate Generic arg
+    "bin":[arg] -> Just <$> doNixLocate Bin arg
+    "man":[arg] -> Just <$> doNixLocate Man arg
+    [tp, _] -> return $ Just $ "Unknown locate type " ++ tp
+    _ -> return $ Just ",locate only takes 1 or 2 arguments"
+    )
   ]
 
-listCommands :: Maybe Int -> State St String
+listCommands :: MonadState St m => Maybe Int -> m String
 listCommands mpage = do
   cmdUses <- gets $ M.assocs . M.map fst
   let sorted = fst <$> sortBy (flip $ comparing snd) cmdUses
+  let special = M.keys fixed
+  let all = "Special commands:":special ++ "- Commands sorted by use count, page 0 (use `,<n>` to view page <n>):":sorted
   let page = fromMaybe 0 mpage
-  return $ paging prefix sorted page
-  where
-    prefix 0 = "All commands sorted by use count, page 0 (use `, <n>` to view page <n>):"
-    prefix n = ""
+  return $ paging all page
+
 
 type St = Map String (Int, String)
 
@@ -180,36 +188,31 @@ commandsPlugin :: MonadIO m => MyPlugin St m
 commandsPlugin = MyPlugin M.empty trans "commands"
   where
     trans (chan, nick, ',':command) = case words command of
-      [] -> do
-        els <- gets $ M.assocs . M.map fst
-        let sorted = (' ':) . fst <$> sortBy (flip $ comparing snd) els
-        let res = scanl (++) "Most used commands: " sorted
-        let x = last $ takeWhile ((<456).length) res
-        return [ x ]
+      [] -> (:[]) <$> listCommands Nothing
+      cmd:rest -> case readMaybe cmd :: Maybe Int of
+        Just num -> (:[]) <$> listCommands (Just num)
+        Nothing -> case M.lookup cmd fixed of
+          Just fun -> do
+            cur <- get
+            (a, s) <- liftIO $ runStateT (fun nick rest) cur
+            put s
+            return $ maybeToList a
+          Nothing -> case rest of
+            [] -> replyLookup nick Nothing <$> lookupCommand cmd
+            "=":vals -> case length vals of
+                0 -> do
+                  mvalue <- gets $ M.lookup cmd
+                  case mvalue of
+                    Nothing -> return [ cmd ++ " is already undefined" ]
+                    Just (_, value) -> do
+                      modify (M.delete cmd)
+                      return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
+                _ -> do
+                  old <- gets $ M.lookup cmd
+                  modify $ M.insertWith (\(uses, _) (_, new) -> (uses, new)) cmd (0, unwords vals)
+                  case old of
+                    Nothing -> return [ cmd ++ " defined" ]
+                    Just (_, val) -> return [ cmd ++ " redefined, was defined as: " ++ val ]
+            args -> replyLookup nick (Just (unwords args)) <$> lookupCommand cmd
 
-      "locate":args -> case args of
-        [] -> return ["Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)."]
-        [arg] -> (:[]) <$> doNixLocate Generic arg
-        "bin":[arg] -> (:[]) <$> doNixLocate Bin arg
-        "man":[arg] -> (:[]) <$> doNixLocate Man arg
-        [tp, _] -> return ["Unknown locate type " ++ tp]
-        _ -> return [",locate only takes 1 or 2 arguments"]
-      "tell":args -> return []
-      "find":args -> return []
-      [ cmd ] -> replyLookup nick Nothing <$> lookupCommand cmd
-      cmd:"=":rest -> case length rest of
-          0 -> do
-            mvalue <- gets $ M.lookup cmd
-            case mvalue of
-              Nothing -> return [ cmd ++ " is already undefined" ]
-              Just (_, value) -> do
-                modify (M.delete cmd)
-                return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
-          _ -> do
-            old <- gets $ M.lookup cmd
-            modify $ M.insertWith (\(uses, _) (_, new) -> (uses, new)) cmd (0, unwords rest)
-            case old of
-              Nothing -> return [ cmd ++ " defined" ]
-              Just (_, val) -> return [ cmd ++ " redefined, was defined as: " ++ val ]
-      cmd:args -> replyLookup nick (Just (unwords args)) <$> lookupCommand cmd
     trans (_, _, _) = return []
