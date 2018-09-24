@@ -30,6 +30,7 @@ import           Text.Read               (readMaybe)
 
 import           Control.Monad.State
 import           NixEval
+import           Utils
 
 data LookupResult = Empty | Exact String | Guess String String
 
@@ -144,19 +145,21 @@ parseDrvName name = case splitIndex of
   where
     splitIndex = findIndex (uncurry (&&) . bimap (=='-') (not . isAlpha)) . zip name . tail $ name
 
+ircLimit :: String -> Bool
+ircLimit = (<456) . length
+
 doNixLocate :: MonadIO m => LocateMode -> String -> m String
 doNixLocate mode arg = do
   attributes <- nixLocate mode arg
   return $ case attributes of
     Left error -> error
-    Right packages -> uncurry (++) . bimap
-      (\ps -> if null ps
-        then "Couldn't find any packages"
-        else "Found in packages: " ++ intercalate ", " ps)
-      (\rest -> if null rest
-        then ""
-        else ", and " ++ show (length rest) ++ " more")
-      . splitAt 7 $ packages
+    Right [] -> "Couldn't find in any packages"
+    Right packages -> case mostMatching packages present ircLimit of
+      Nothing -> "Found in packages, but the package attribute is too long for an IRC message.."
+      Just result -> result
+      where
+        present (shown, hidden) = "Found in packages: " ++ intercalate ", " shown ++
+          if null hidden then "" else ", and " ++ show (length hidden) ++ " more"
 
 fixed :: Map String (String -> [String] -> StateT St IO (Maybe String))
 fixed = M.fromList
