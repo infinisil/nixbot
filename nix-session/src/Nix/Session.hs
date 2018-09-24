@@ -217,10 +217,13 @@ allAssigns :: Set Text -> [Binding NExpr] -> Either String [(Text, NExpr)]
 allAssigns set bindings = concat <$> mapM (toSymAssigns set) bindings
 
 toSymAssigns :: Set Text -> Binding NExpr -> Either String [(Text, NExpr)]
-toSymAssigns _ (Inherit Nothing _ _) = Left "Inherits need a scope"
-toSymAssigns _ (Inherit (Just scope) keys pos) = Right $ map inherit keys
-  where inherit (StaticKey varname) = (varname, Fix (NSelect scope (StaticKey varname :| []) Nothing))
-        inherit (DynamicKey _) = error "Shouldn't get here, inherits from dynamic keys shouldn't be possible"
+toSymAssigns _ (Inherit mscope keys pos) = Right $ map inherit keys
+  where
+    inherit (StaticKey varname) = (varname, Fix expr)
+      where expr = case mscope of
+              Nothing    -> NSym varname
+              Just scope -> NSelect scope (StaticKey varname :| []) Nothing
+    inherit (DynamicKey _) = error "Shouldn't get here, inherits from dynamic keys shouldn't be possible"
 toSymAssigns _ (NamedVar (DynamicKey _ :| _) _ _) = Left "Assignments to dynamic keys are disallowed"
 toSymAssigns _ (NamedVar (StaticKey varname :| []) expr _) = return [(varname, expr)]
 toSymAssigns vars (NamedVar (StaticKey varname :| path@(p:ps)) expr pos)
