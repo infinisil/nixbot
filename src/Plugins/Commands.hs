@@ -19,7 +19,6 @@ import           Data.Set                (Set)
 import qualified Data.Set                as Set
 import qualified Data.Text               as Text
 import           Data.Versions
-import           IRC
 import           Plugins
 import           System.Exit
 import           System.Process
@@ -177,12 +176,17 @@ fixed = M.fromList
 
 listCommands :: MonadState St m => Maybe Int -> m String
 listCommands mpage = do
-  cmdUses <- gets $ M.assocs . M.map fst
-  let sorted = fst <$> sortBy (flip $ comparing snd) cmdUses
-  let special = M.keys fixed
-  let all = "Special commands:":special ++ "- Commands sorted by use count, page 0 (use `,<n>` to view page <n>):":sorted
-  let page = fromMaybe 0 mpage
-  return $ paging all page
+  sorted <- gets $ fmap fst . sortBy (flip $ comparing snd) . M.assocs . M.map fst
+  let pages = paging sorted getPage ircLimit
+  return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " ++ show (length pages - 1)
+
+  where
+    special = M.keys fixed
+    getPage 0 items = "Special commands: " ++ unwords special
+      ++ " - Commands sorted by use count, page 0 (use ,<n> to view page <n>): " ++ unwords items
+    getPage n items = "Page " ++ show n ++ ": " ++ unwords items
+    page = fromMaybe 0 mpage
+
 
 
 type St = Map String (Int, String)
