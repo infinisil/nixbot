@@ -1,6 +1,17 @@
+{-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Nix.Session.Config where
 
-import           Data.Map (Map)
+import           Data.Map             (Map)
+import           System.Process.Typed
+
+import           Data.ByteString.Lazy (fromStrict)
+import           Data.FileEmbed       (embedFile)
+
+import           GHC.Generics
+
+import           Data.Aeson           (FromJSON, decode')
 {-
 Plan for config:
 - Both nixbot and nix-session require a config
@@ -19,6 +30,24 @@ What to configure for nix-session:
 - readonly mode
 - NIX_PATH
 - extra Nix options
-
 -}
 
+data Config = Config
+  { selfName  :: String
+  , fixedDefs :: Map String String
+  } deriving (Generic, Show)
+
+instance FromJSON Config
+
+evalConfig :: FilePath -> String -> IO Config
+evalConfig nixInstantiate config = do
+  y <- readProcessStdout_ process
+  case decode' y of
+    Nothing -> error "Couldn't decode json value, Nix module is inconsistent with internal representation"
+    Just res -> return res
+  where
+    stdin = byteStringInput $ fromStrict $(embedFile "options.nix")
+    args =
+      [ "--eval", "--strict", "--json"
+      , "--arg", "config", config, "-" ]
+    process = setStdin stdin $ proc nixInstantiate args
