@@ -19,6 +19,7 @@ library
   exposed-modules:     Nix.Session
                        Nix.Session.Input
                        Nix.Session.CanAssign
+                       Nix.Session.Config
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
