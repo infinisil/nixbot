@@ -16,6 +16,8 @@ import qualified Data.Set                     as Set
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
 
+import           Data.Text.Lens
+
 import           Data.IntMap                  (IntMap)
 import qualified Data.IntMap                  as IntMap
 import           Data.IntSet                  (IntSet)
@@ -29,6 +31,7 @@ import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
 
 import           Control.Monad.Except
+import           Control.Monad.Reader
 import           Control.Monad.State
 import           System.Exit
 
@@ -40,6 +43,7 @@ import           Nix.TH
 import           Nix.Session.Input
 
 import           Control.Lens                 hiding (uses)
+import           Nix.Session.Config
 
 data Expression = Expression
   { _varname :: VarName
@@ -54,8 +58,14 @@ data NixEnv = NixEnv
   , _scope       :: Map VarName Int
   } deriving (Show, Read)
 
+data Env = Env
+  { _nixInstantiate :: FilePath
+  , _config         :: Config
+  }
+
 makeLenses ''Expression
 makeLenses ''NixEnv
+makeLenses ''Env
 
 increase :: MonadState NixEnv m => Int -> m ()
 increase key = definitions . ix key . numUses += 1
@@ -85,13 +95,17 @@ trans var expr = do
   definitions %= IntMap.insert defId e
   scope %= Map.insert var defId
 
-eval :: (MonadIO m, MonadState NixEnv m) => NExpr -> m String
+eval :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   defs <- use definitions
-  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (self: super: with super; { " <> _varname <> " = " <> _expr <> "; })") "\n\t\tlib.makeExtensible (self: {})" defs
+  self <- view $ config . selfName . packed
+  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\tlib.makeExtensible (" <> self <> ": {})") defs
 
 
-  let final = Text.unpack $ "let\n\tpkgs = import <nixpkgs> {};\n\tlib = pkgs.lib;\n\tself = " <> chain <> "; in with self;\n" <> Text.pack (printExpr expr)
+  let final = Text.unpack $ "let\n\tpkgs = import <nixpkgs> {};\n\tlib = pkgs.lib;\n\t" <> self <> " = " <> chain <> "; in with " <> self <> ";\n" <> Text.pack (printExpr expr)
+
+  -- Watch out for:
+  -- super not allowed in free vars
 
   liftIO $ putStrLn final
   -- TODO: Make a read env to save this
@@ -106,7 +120,7 @@ startState = NixEnv 0 IntMap.empty Map.empty
 
 
 
-processText :: (MonadIO m, MonadState NixEnv m) => Text -> m String
+processText :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => Text -> m String
 processText line = do
   parsed <- runExceptT $ parseInput line
   result <- case parsed of

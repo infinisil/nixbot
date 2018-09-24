@@ -1,11 +1,14 @@
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Nix.Session.Config where
+module Nix.Session.Config (evalConfig, Config(..), selfName, fixedDefs) where
 
 import           Data.Map             (Map)
 
-import           Data.Aeson           (FromJSON, decode')
+import           Control.Lens
+import           Data.Aeson           (FromJSON, decode', fieldLabelModifier,
+                                       genericParseJSON)
+import           Data.Aeson.Types
 import           Data.ByteString.Lazy (fromStrict)
 import           Data.FileEmbed       (embedFile)
 import           GHC.Generics
@@ -33,24 +36,25 @@ What to configure for nix-session:
 -}
 
 data Config = Config
-  { selfName  :: String
-  , fixedDefs :: Map String String
+  { _selfName  :: String
+  , _fixedDefs :: Map String String
   } deriving (Generic, Show)
 
-instance FromJSON Config
+makeLenses ''Config
+
+instance FromJSON Config where
+  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = tail }
+
 
 evalConfig :: FilePath -> FilePath -> IO Config
 evalConfig nixInstantiate config = do
-  -- Make path absolute, Nix needs a slash to recognize it as a path
-  absoluteConfig <- makeAbsolute config
-  let args = [ "--eval", "--strict", "--json"
-             , "--arg", "config", absoluteConfig, "-" ]
-  let process = setStdin stdin $ proc nixInstantiate args
-
   y <- readProcessStdout_ process
   case decode' y of
     Nothing -> error "Couldn't decode json value, Nix module is inconsistent with internal representation"
     Just res -> return res
 
   where
+    args = [ "--eval", "--strict", "--json"
+           , "--arg", "config", config, "-" ]
+    process = setStdin stdin $ proc nixInstantiate args
     stdin = byteStringInput $ fromStrict $(embedFile "options.nix")
