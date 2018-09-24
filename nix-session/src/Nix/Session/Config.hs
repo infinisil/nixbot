@@ -33,6 +33,10 @@ What to configure for nix-session:
 - readonly mode
 - NIX_PATH
 - extra Nix options
+
+*Actually*:
+- There's session-wide config, which should be changeable when creating a new session or with special commands during one. This includes selfName, fixedDefs, NIX_PATH, nix options
+- Command config, such as session location, external sessions, readonly mode
 -}
 
 data Config = Config
