@@ -1,4 +1,4 @@
-module Utils (prettySeconds, mostMatching) where
+module Utils (prettySeconds, mostMatching, paging) where
 
 import           Data.List
 import           Data.Maybe
@@ -21,6 +21,17 @@ prettySeconds relevant seconds = intercalate ", " relevantStrings
     format _ 0   = Nothing
     format str 1 = Just $ "1 " ++ str
     format str n = Just $ show n ++ " " ++ str ++ "s"
+
+
+-- | Given a set of items, a mapping from a page number and a set of items to a page, and a page validity condition, return the resulting valid pages. Doesn't return all elements paged in case the page condition can't be met.
+paging :: [a] -> (Int -> [a] -> b) -> (b -> Bool) -> [b]
+paging xs f pred = getPages 0 xs
+  where
+    getPage n elems = mostMatching elems (\(a, b) -> (f n a, b)) (pred . fst)
+    getPages _ [] = []
+    getPages n elems = case getPage n elems of
+      Nothing           -> []
+      Just (page, rest) -> page : getPages (n + 1) rest
 
 
 -- | Returns the mapping of the largest list split for which the predicate still holds. The split will always be after the first element.
