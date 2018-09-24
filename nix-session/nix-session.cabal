@@ -18,6 +18,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Nix.Session
                        Nix.Session.Input
+                       Nix.Session.CanAssign
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
