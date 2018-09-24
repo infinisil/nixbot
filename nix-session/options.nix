@@ -16,7 +16,12 @@ builtins.removeAttrs (evalModules {
         fixedDefs = mkOption {
           type = types.attrsOf types.str;
           default = {};
-          description = "Fixed definitions";
+          description = ''
+            Fixed definitions, overriding all dynamically defined ones.
+            Note: While this is an attrset and therefore doesn't have a fixed
+            order, this doesn't matter, as the `let in` statement to be used for
+            these fixed definitions works like a rec set.
+          '';
         };
 
       };
