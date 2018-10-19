@@ -1,0 +1,11 @@
+On sessions:
+- A nix-session invocation can have a single primary session and many secondary sessions
+- Only the primary session can be written to.
+- Only one nix-session invocation can get write rights to a session
+- If a nix-session invocation has write rights, nobody can get read rights to it.
+- Lock file ".foo.lock" for session file "foo" in same directory.
+- Secondary sessions are accessible through attributes `nixbot.sessions.<name>`. This presents a view of the session as it was at the time of the nix-session invocation start.
+- Depending on a secondary session for a definition should import the sessions definitions into the primary session such that there is no dependency on the file being there.
+- This means that new changes in the other session won't get propagated.
+- Each secondary session import has to be treated as completely new, even though the file and its definitions might have been seen earlier. It would be nice to be able to deduplicate definitions though.
+- Allow entering a secondary session as primary while allowing secondary access to the previously primary one. Only if we are the only primary session having read access to the secondary one (upgrading read to write rights).

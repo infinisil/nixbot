@@ -19,11 +19,7 @@ import           System.Process.Typed
 Plan for config:
 - Both nixbot and nix-session require a config
 - Because nixbot uses nix-session, nix-session should be fully configurable from nixbot
-- Want to use NixOS module for nixbot config
-- Want to use dhall for nix-session config
-- NixOS module for nix-session would be annoying: Would have to eval nix everytime at the start
-- nixbot should also be configurable with dhall
-- NixOS module for nixbot should have all the type equivalents to the dhall config
+- Want to use NixOS module for nixbot and nix-session config
 
 What to configure for nix-session:
 - What to call "self"
@@ -36,7 +32,7 @@ What to configure for nix-session:
 
 *Actually*:
 - There's session-wide config, which should be changeable when creating a new session or with special commands during one. This includes selfName, fixedDefs, NIX_PATH, nix options
-- Command config, such as session location, external sessions, readonly mode
+- Command config, such as session location, external sessions, readonly mode, defaults for session-wide configs too
 -}
 
 data Config = Config
