@@ -18,7 +18,7 @@ main = do
   nixInstantiate <- fromMaybe (error "Couldn't find nix-instantiate executable") <$> findExecutable "nix-instantiate"
   config <- getConfig nixInstantiate
   let env = Env { _nixInstantiate = nixInstantiate
-                , _config = config
+                , _globalConfig = config
                 }
   runReaderT (evalStateT thething startState) env
 
@@ -30,7 +30,7 @@ thething = do
   liftIO $ putStrLn result
   thething
 
-getConfig :: FilePath -> IO Config
+getConfig :: FilePath -> IO GlobalConfig
 getConfig nixInstantiate = do
   home <- getHomeDirectory
   let configPath = home </> ".config/nix-session/config.nix"

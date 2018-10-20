@@ -9,6 +9,7 @@ import           Control.Lens                 hiding (uses)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
+import qualified Data.ByteString              as BS
 import           Data.Fix
 import           Data.Foldable                (traverse_)
 import           Data.IntMap                  (IntMap)
@@ -22,6 +23,7 @@ import           Data.Maybe
 import           Data.SafeCopy
 import           Data.Sequence
 import qualified Data.Sequence                as Seq
+import           Data.Serialize               (runGet)
 import           Data.Set                     (Set, (\\))
 import qualified Data.Set                     as Set
 import           Data.Text                    (Text)
@@ -54,15 +56,35 @@ data SessionState = SessionState
   } deriving (Show, Read)
 
 data Env = Env
-  { _nixInstantiate :: FilePath
-  , _config         :: Config
-  }
+  { _nixInstantiate    :: FilePath -- ^ Path to nix-instantiate binary
+  , _primarySession    :: Session -- ^ primary session, have read-write access to this
+  , _secondarySessions :: Map String Session -- ^ Secondary sessions, read-only access to these
+  , _globalConfig      :: GlobalConfig -- ^ The global nix-session configuration
+  } deriving (Show)
 
 -- | All data associated with a specific session, ultimately to be serialized to files for session persistence.
 data Session = Session
-  { _sessionState  :: SessionState -- ^ The state of the session, will change with new definitions issued
+  { _sessionFile   :: FilePath -- ^ The file this session is (to be) stored in
+  , _sessionState  :: SessionState -- ^ The state of the session, will change with new definitions issued
   , _sessionConfig :: SessionConfig -- ^ The session config, changes infrequently and needs special handling to be changeable at all
-  }
+  } deriving (Show)
+
+initEnv :: GlobalConfig -> IO (Either String Env)
+initEnv config = do
+  nixExe <- maybe (Left "Couldn't find nix-instantiate executable") Right <$> findExecutable "nix-instantiate"
+  primary <- initSession (config^.sessionDefaults) (config^.primarySessionFile)
+  secondaries <- sequence <$> mapM (initSession (config^.sessionDefaults)) (config^.secondarySessionFiles)
+  return $ Env <$> nixExe <*> primary <*> secondaries <*> pure config
+
+initSession :: SessionConfig -> FilePath -> IO (Either String Session)
+initSession defaultConfig path = do
+  exists <- doesFileExist path
+  if exists then runGet safeGet <$> BS.readFile path
+  else return $ Right newSession
+  where newSession = Session { _sessionFile = path
+                             , _sessionState = SessionState 0 IntMap.empty Map.empty
+                             , _sessionConfig = defaultConfig
+                             }
 
 deriveSafeCopy 1 'base ''Definition
 deriveSafeCopy 1 'base ''SessionState
@@ -104,10 +126,10 @@ trans var expr = do
 eval :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   defs <- use definitions
-  self <- view $ config . sessionDefaults . selfName . packed
+  self <- view $ globalConfig . sessionDefaults . selfName . packed
   let chain = foldl (\acc Definition { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
 
-  fixed <- view $ config . sessionDefaults . fixedDefs
+  fixed <- view $ globalConfig . sessionDefaults . fixedDefs
 
   let fixedStr = Text.concat $ map (\(n, v) -> n <> " = " <> v <> ";\n\t") (Map.assocs fixed)
 

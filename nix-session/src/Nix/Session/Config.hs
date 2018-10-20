@@ -42,16 +42,16 @@ data SessionConfig = SessionConfig
   , _fixedDefs :: Map Text Text
   } deriving (Show, Generic)
 
-data Config = GlobalConfig
-  { _primarySession    :: FilePath
-  , _secondarySessions :: Map String FilePath
-  , _sessionDefaults   :: SessionConfig
-  , _nixPath           :: Maybe [String]
-  , _nixOptions        :: Map String String
+data GlobalConfig = GlobalConfig
+  { _primarySessionFile    :: FilePath
+  , _secondarySessionFiles :: Map String FilePath
+  , _sessionDefaults       :: SessionConfig
+  , _nixPath               :: Maybe [String]
+  , _nixOptions            :: Map String String
   } deriving (Show, Generic)
 
 makeLenses ''SessionConfig
-makeLenses ''Config
+makeLenses ''GlobalConfig
 
 deriveSafeCopy 1 'base ''SessionConfig
 
@@ -60,10 +60,10 @@ lensOptions = defaultOptions { fieldLabelModifier = tail }
 instance FromJSON SessionConfig where
   parseJSON = genericParseJSON lensOptions
 
-instance FromJSON Config where
+instance FromJSON GlobalConfig where
   parseJSON = genericParseJSON lensOptions
 
-evalConfig :: FilePath -> FilePath -> IO Config
+evalConfig :: FilePath -> FilePath -> IO GlobalConfig
 evalConfig nixInstantiate config = do
   nixFile <- getDataFileName "nix/default.nix"
   let args = [ "--eval", "--strict", "--json"

@@ -7,13 +7,13 @@ with lib;
 
   options = {
 
-    primarySession = mkOption {
+    primarySessionFile = mkOption {
       type = types.path;
       default = toString ~/.local/share/nix-session/session;
       description = "Primary session";
     };
 
-    secondarySessions = mkOption {
+    secondarySessionFiles = mkOption {
       type = types.attrsOf types.path;
       default = {};
     };
