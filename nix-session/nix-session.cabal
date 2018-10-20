@@ -40,6 +40,8 @@ library
                      , file-embed
                      , bytestring
                      , aeson
+                     , cereal
+                     , safecopy
   hs-source-dirs:      src
   default-extensions:          OverloadedStrings
   default-language:    Haskell2010

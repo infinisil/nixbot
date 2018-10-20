@@ -8,6 +8,7 @@ import           Data.Aeson           (FromJSON (..), defaultOptions,
                                        eitherDecode', fieldLabelModifier,
                                        genericParseJSON)
 import           Data.Map             (Map)
+import           Data.SafeCopy
 import           Data.Text            (Text)
 import           GHC.Generics         (Generic)
 import           Paths_nix_session    (getDataFileName)
@@ -51,6 +52,8 @@ data Config = GlobalConfig
 
 makeLenses ''SessionConfig
 makeLenses ''Config
+
+deriveSafeCopy 1 'base ''SessionConfig
 
 lensOptions = defaultOptions { fieldLabelModifier = tail }
 

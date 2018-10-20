@@ -23,7 +23,7 @@ main = do
   runReaderT (evalStateT thething startState) env
 
 
-thething :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => m ()
+thething :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => m ()
 thething = do
   line <- pack <$> liftIO getLine
   result <- processText line

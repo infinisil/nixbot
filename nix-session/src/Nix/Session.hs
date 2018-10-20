@@ -5,57 +5,52 @@
 
 module Nix.Session where
 
+import           Control.Lens                 hiding (uses)
+import           Control.Monad.Except
+import           Control.Monad.Reader
+import           Control.Monad.State
 import           Data.Fix
 import           Data.Foldable                (traverse_)
+import           Data.IntMap                  (IntMap)
+import qualified Data.IntMap                  as IntMap
+import           Data.IntSet                  (IntSet)
+import qualified Data.IntSet                  as IntSet
+import           Data.List.NonEmpty           (NonEmpty (..))
 import           Data.Map                     (Map)
 import qualified Data.Map                     as Map
+import           Data.Maybe
+import           Data.SafeCopy
 import           Data.Sequence
 import qualified Data.Sequence                as Seq
 import           Data.Set                     (Set, (\\))
 import qualified Data.Set                     as Set
 import           Data.Text                    (Text)
 import qualified Data.Text                    as Text
-
 import           Data.Text.Lens
-
-import           Data.IntMap                  (IntMap)
-import qualified Data.IntMap                  as IntMap
-import           Data.IntSet                  (IntSet)
-import qualified Data.IntSet                  as IntSet
-
-import           Data.List.NonEmpty           (NonEmpty (..))
-import           Data.Maybe
+import           Nix.Expr
+import           Nix.Parser
+import           Nix.Pretty
+import           Nix.Session.Config
+import           Nix.TH
 import           System.Directory
+import           System.Exit
 import           System.Process               hiding (Inherit)
 import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
 
-import           Control.Monad.Except
-import           Control.Monad.Reader
-import           Control.Monad.State
-import           System.Exit
-
-import           Nix.Expr
-import           Nix.Parser
-import           Nix.Pretty
-import           Nix.TH
-
 import           Nix.Session.Input
 
-import           Control.Lens                 hiding (uses)
-import           Nix.Session.Config
-
-data Expression = Expression
-  { _varname :: VarName
-  , _expr    :: Text
-  , _depends :: Map VarName Int
-  , _numUses :: Int
+data Definition = Definition
+  { _varname :: VarName -- ^ The variable name of this definition
+  , _expr    :: Text -- ^ The assigned Nix expression
+  , _depends :: Map VarName Int -- ^ The dependencies as a map from variable names to definition index
+  , _numUses :: Int -- ^ How many dependents this definition has
   } deriving (Show, Read)
 
-data NixEnv = NixEnv
-  { _defCount    :: Int
-  , _definitions :: IntMap Expression
-  , _scope       :: Map VarName Int
+data SessionState = SessionState
+  { _defCount    :: Int -- ^ How many definitions have been issued
+  , _definitions :: IntMap Definition -- ^ The definitions that have been issued and are still alive, reachable by a root
+  , _roots       :: Map VarName Int -- ^ The definition roots, aka the definitions currently in scope
   } deriving (Show, Read)
 
 data Env = Env
@@ -63,43 +58,54 @@ data Env = Env
   , _config         :: Config
   }
 
-makeLenses ''Expression
-makeLenses ''NixEnv
-makeLenses ''Env
+-- | All data associated with a specific session, ultimately to be serialized to files for session persistence.
+data Session = Session
+  { _sessionState  :: SessionState -- ^ The state of the session, will change with new definitions issued
+  , _sessionConfig :: SessionConfig -- ^ The session config, changes infrequently and needs special handling to be changeable at all
+  }
 
-increase :: MonadState NixEnv m => Int -> m ()
+deriveSafeCopy 1 'base ''Definition
+deriveSafeCopy 1 'base ''SessionState
+deriveSafeCopy 1 'base ''Session
+
+makeLenses ''Definition
+makeLenses ''SessionState
+makeLenses ''Env
+makeLenses ''Session
+
+increase :: MonadState SessionState m => Int -> m ()
 increase key = definitions . ix key . numUses += 1
 
 --
-decrease :: MonadState NixEnv m => Int -> m ()
+decrease :: MonadState SessionState m => Int -> m ()
 decrease key = use (definitions . at key) >>= \case
   Nothing -> return ()
-  Just Expression { _numUses = 0, _depends } -> do
+  Just Definition { _numUses = 0, _depends } -> do
     definitions . at key .= Nothing
     traverse_ decrease _depends
-  Just Expression { _numUses } -> definitions . ix key . numUses .= _numUses - 1
+  Just Definition { _numUses } -> definitions . ix key . numUses .= _numUses - 1
 
-trans :: MonadState NixEnv m => VarName -> NExpr -> m ()
+trans :: MonadState SessionState m => VarName -> NExpr -> m ()
 trans var expr = do
   -- The dependencies of the expression are all definitions in scope limited to the free variables of the expression
   -- Because only the free variables might have an influence on it.
-  deps <- Map.restrictKeys <$> use scope <*> pure (freeVars expr)
+  deps <- Map.restrictKeys <$> use roots <*> pure (freeVars expr)
   traverse_ increase deps
-  use (scope . at var) >>= maybe (return ()) decrease
+  use (roots . at var) >>= maybe (return ()) decrease
 
   let text = Text.pack $ printExpr expr
-  let e = Expression var text deps 0
+  let e = Definition var text deps 0
 
   defId <- use defCount
   defCount += 1
   definitions %= IntMap.insert defId e
-  scope %= Map.insert var defId
+  roots %= Map.insert var defId
 
-eval :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => NExpr -> m String
+eval :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   defs <- use definitions
   self <- view $ config . sessionDefaults . selfName . packed
-  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
+  let chain = foldl (\acc Definition { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
 
   fixed <- view $ config . sessionDefaults . fixedDefs
 
@@ -119,17 +125,17 @@ eval expr = do
     ExitSuccess   -> return stdout
     ExitFailure _ -> return stderr
 
-startState = NixEnv 0 IntMap.empty Map.empty
+startState = SessionState 0 IntMap.empty Map.empty
 
 
 
-processText :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => Text -> m String
+processText :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => Text -> m String
 processText line = do
   parsed <- runExceptT $ parseInput line
   result <- case parsed of
     Left err -> return $ "error: " ++ show err
     Right (Nix (Assignments bindings)) -> do
-      definedVars <- Map.keysSet <$> use scope
+      definedVars <- Map.keysSet <$> use roots
       case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
         Left err      -> return err
         Right assigns -> do
@@ -144,10 +150,10 @@ processText line = do
 
 
 
---start :: NixEnv
+--start :: SessionState
 --start = (0, IntMap.empty, Map.empty)
 --
---insert :: VarName -> NExpr -> NixEnv -> NixEnv
+--insert :: VarName -> NExpr -> SessionState -> SessionState
 --insert var expr (n, defs, envv) = (n + 1, newDefs'', newEnv)
 --  where
 --    imDeps = IntSet.fromList . Map.elems . Map.restrictKeys envv . freeVars $ expr
@@ -193,7 +199,7 @@ processText line = do
 --conflicts :: Definition -> Definition -> Bool
 --conflicts Definition { free = lf } Definition { free = rf } = undefined
 --
---eval :: NixEnv -> NExpr -> ()
+--eval :: SessionState -> NExpr -> ()
 --eval (_, defs, env) expr = undefined
 --  where
 --    imDeps = Map.elems . Map.restrictKeys env . freeVars $ expr
