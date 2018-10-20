@@ -8,6 +8,7 @@ import           Data.Aeson           (FromJSON (..), defaultOptions,
                                        eitherDecode', fieldLabelModifier,
                                        genericParseJSON)
 import           Data.Map             (Map)
+import           Data.Text            (Text)
 import           GHC.Generics         (Generic)
 import           Paths_nix_session    (getDataFileName)
 import           System.Process.Typed (proc, readProcessStdout_)
@@ -37,7 +38,7 @@ What to configure for nix-session:
 data SessionConfig = SessionConfig
   { _selfName  :: String
   , _metaName  :: String
-  , _fixedDefs :: Map String String
+  , _fixedDefs :: Map Text Text
   } deriving (Show, Generic)
 
 data Config = GlobalConfig

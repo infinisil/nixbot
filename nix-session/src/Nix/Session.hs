@@ -99,10 +99,13 @@ eval :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   defs <- use definitions
   self <- view $ config . sessionDefaults . selfName . packed
-  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\tlib.makeExtensible (" <> self <> ": {})") defs
+  let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
 
+  fixed <- view $ config . sessionDefaults . fixedDefs
 
-  let final = Text.unpack $ "let\n\tpkgs = import <nixpkgs> {};\n\tlib = pkgs.lib;\n\t" <> self <> " = " <> chain <> "; in with " <> self <> ";\n" <> Text.pack (printExpr expr)
+  let fixedStr = Text.concat $ map (\(n, v) -> n <> " = " <> v <> ";\n\t") (Map.assocs fixed)
+
+  let final = Text.unpack $ "let\n\t" <> fixedStr <> self <> " = " <> chain <> "; in with " <> self <> ";\n" <> Text.pack (printExpr expr)
 
   -- Watch out for:
   -- super not allowed in free vars
