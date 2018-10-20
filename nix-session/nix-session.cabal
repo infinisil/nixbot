@@ -14,13 +14,15 @@ maintainer:          infinisil@icloud.com
 build-type:          Simple
 extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
+data-files:          nix/*.nix
 
 library
   exposed-modules:     Nix.Session
                        Nix.Session.Input
                        Nix.Session.CanAssign
                        Nix.Session.Config
-  -- other-modules:
+  other-modules:       Paths_nix_session
+  
   -- other-extensions:
   build-depends:       base >=4.11 && <4.12
                      , mtl

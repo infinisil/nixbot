@@ -98,7 +98,7 @@ trans var expr = do
 eval :: (MonadIO m, MonadState NixEnv m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   defs <- use definitions
-  self <- view $ config . selfName . packed
+  self <- view $ config . sessionDefaults . selfName . packed
   let chain = foldl (\acc Expression { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\tlib.makeExtensible (" <> self <> ": {})") defs
 
 

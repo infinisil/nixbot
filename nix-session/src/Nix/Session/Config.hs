@@ -1,20 +1,17 @@
 {-# LANGUAGE DeriveGeneric   #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Nix.Session.Config (evalConfig, Config(..), selfName, fixedDefs) where
+module Nix.Session.Config where
 
-import           Data.Map             (Map)
-
-import           Control.Lens
-import           Data.Aeson           (FromJSON, decode', fieldLabelModifier,
+import           Control.Lens         (makeLenses)
+import           Data.Aeson           (FromJSON (..), defaultOptions,
+                                       eitherDecode', fieldLabelModifier,
                                        genericParseJSON)
-import           Data.Aeson.Types
-import           Data.ByteString.Lazy (fromStrict)
-import           Data.FileEmbed       (embedFile)
-import           GHC.Generics
+import           Data.Map             (Map)
+import           GHC.Generics         (Generic)
+import           Paths_nix_session    (getDataFileName)
+import           System.Process.Typed (proc, readProcessStdout_)
 
-import           System.Directory     (makeAbsolute)
-import           System.Process.Typed
 {-
 Plan for config:
 - Both nixbot and nix-session require a config
@@ -33,28 +30,41 @@ What to configure for nix-session:
 *Actually*:
 - There's session-wide config, which should be changeable when creating a new session or with special commands during one. This includes selfName, fixedDefs, NIX_PATH, nix options
 - Command config, such as session location, external sessions, readonly mode, defaults for session-wide configs too
+
+- Should nixPath and options be part of the session config? Because evaluating things from secondary sessions can't honor these.
 -}
 
-data Config = Config
+data SessionConfig = SessionConfig
   { _selfName  :: String
+  , _metaName  :: String
   , _fixedDefs :: Map String String
-  } deriving (Generic, Show)
+  } deriving (Show, Generic)
 
+data Config = GlobalConfig
+  { _primarySession    :: FilePath
+  , _secondarySessions :: Map String FilePath
+  , _sessionDefaults   :: SessionConfig
+  , _nixPath           :: Maybe [String]
+  , _nixOptions        :: Map String String
+  } deriving (Show, Generic)
+
+makeLenses ''SessionConfig
 makeLenses ''Config
 
-instance FromJSON Config where
-  parseJSON = genericParseJSON defaultOptions { fieldLabelModifier = tail }
+lensOptions = defaultOptions { fieldLabelModifier = tail }
 
+instance FromJSON SessionConfig where
+  parseJSON = genericParseJSON lensOptions
+
+instance FromJSON Config where
+  parseJSON = genericParseJSON lensOptions
 
 evalConfig :: FilePath -> FilePath -> IO Config
 evalConfig nixInstantiate config = do
-  y <- readProcessStdout_ process
-  case decode' y of
-    Nothing -> error "Couldn't decode json value, Nix module is inconsistent with internal representation"
-    Just res -> return res
-
-  where
-    args = [ "--eval", "--strict", "--json"
-           , "--arg", "config", config, "-" ]
-    process = setStdin stdin $ proc nixInstantiate args
-    stdin = byteStringInput $ fromStrict $(embedFile "options.nix")
+  nixFile <- getDataFileName "nix/default.nix"
+  let args = [ "--eval", "--strict", "--json"
+             , "--arg", "config", config, nixFile ]
+  result <- readProcessStdout_ $ proc nixInstantiate args
+  case eitherDecode' result of
+    Left err -> fail $ "Couldn't decode json value, Nix module is inconsistent with internal representation: " ++ err
+    Right res -> return res
