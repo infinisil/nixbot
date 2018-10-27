@@ -23,7 +23,7 @@ import           Data.Maybe
 import           Data.SafeCopy
 import           Data.Sequence
 import qualified Data.Sequence                as Seq
-import           Data.Serialize               (runGet)
+import           Data.Serialize               (runGet, runPut)
 import           Data.Set                     (Set, (\\))
 import qualified Data.Set                     as Set
 import           Data.Text                    (Text)
@@ -36,6 +36,7 @@ import           Nix.Session.Config
 import           Nix.TH
 import           System.Directory
 import           System.Exit
+import           System.FilePath
 import           System.Process               hiding (Inherit)
 import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
                                                renderCompact)
@@ -69,12 +70,26 @@ data Session = Session
   , _sessionConfig :: SessionConfig -- ^ The session config, changes infrequently and needs special handling to be changeable at all
   } deriving (Show)
 
+makeLenses ''Definition
+makeLenses ''SessionState
+makeLenses ''Env
+makeLenses ''Session
+
 initEnv :: GlobalConfig -> IO (Either String Env)
 initEnv config = do
   nixExe <- maybe (Left "Couldn't find nix-instantiate executable") Right <$> findExecutable "nix-instantiate"
   primary <- initSession (config^.sessionDefaults) (config^.primarySessionFile)
   secondaries <- sequence <$> mapM (initSession (config^.sessionDefaults)) (config^.secondarySessionFiles)
   return $ Env <$> nixExe <*> primary <*> secondaries <*> pure config
+
+saveEnv :: (MonadIO m, MonadState Env m) => m ()
+saveEnv = do
+  primState <- use $ primarySession
+  file <- use $ globalConfig . primarySessionFile
+  liftIO $ putStrLn $ "Saving to " ++ file
+  let bs = runPut (safePut primState)
+  liftIO $ createDirectoryIfMissing True (dropFileName file)
+  liftIO $ BS.writeFile file bs
 
 initSession :: SessionConfig -> FilePath -> IO (Either String Session)
 initSession defaultConfig path = do
@@ -90,10 +105,6 @@ deriveSafeCopy 1 'base ''Definition
 deriveSafeCopy 1 'base ''SessionState
 deriveSafeCopy 1 'base ''Session
 
-makeLenses ''Definition
-makeLenses ''SessionState
-makeLenses ''Env
-makeLenses ''Session
 
 increase :: MonadState SessionState m => Int -> m ()
 increase key = definitions . ix key . numUses += 1
@@ -123,13 +134,13 @@ trans var expr = do
   definitions %= IntMap.insert defId e
   roots %= Map.insert var defId
 
-eval :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => NExpr -> m String
+eval :: (MonadIO m, MonadState Env m) => NExpr -> m String
 eval expr = do
-  defs <- use definitions
-  self <- view $ globalConfig . sessionDefaults . selfName . packed
+  defs <- use (primarySession.sessionState.definitions)
+  self <- use $ globalConfig . sessionDefaults . selfName . packed
   let chain = foldl (\acc Definition { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
 
-  fixed <- view $ globalConfig . sessionDefaults . fixedDefs
+  fixed <- use $ globalConfig . sessionDefaults . fixedDefs
 
   let fixedStr = Text.concat $ map (\(n, v) -> n <> " = " <> v <> ";\n\t") (Map.assocs fixed)
 
@@ -138,7 +149,7 @@ eval expr = do
   -- Watch out for:
   -- super not allowed in free vars
 
-  liftIO $ putStrLn final
+  --liftIO $ putStrLn final
   -- TODO: Make a read env to save this
   nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
   let args = ["--eval", "-E", final ]
@@ -151,100 +162,27 @@ startState = SessionState 0 IntMap.empty Map.empty
 
 
 
-processText :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => Text -> m String
+processText :: (MonadIO m, MonadState Env m) => Text -> m String
 processText line = do
   parsed <- runExceptT $ parseInput line
   result <- case parsed of
     Left err -> return $ "error: " ++ show err
     Right (Nix (Assignments bindings)) -> do
-      definedVars <- Map.keysSet <$> use roots
+      definedVars <- Map.keysSet <$> use (primarySession.sessionState.roots)
       case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
         Left err      -> return err
         Right assigns -> do
-          traverse_ (uncurry trans) assigns
-          return "Did assign"
+          forM_ assigns $ \(var, expr) -> do
+            ss <- use (primarySession.sessionState)
+            let news = execState (trans var expr) ss
+            primarySession.sessionState .= news
+          return "Did assign\n"
     Right (Nix (Evaluation expr)) -> do
       eval $ stripAnnotation expr
-    Right _ -> return "Doing nothing"
-  s <- get
-  liftIO $ print s
+    Right _ -> return "Doing nothing\n"
+  s <- use (primarySession . sessionState)
+  --liftIO $ print s
   return result
-
-
-
---start :: SessionState
---start = (0, IntMap.empty, Map.empty)
---
---insert :: VarName -> NExpr -> SessionState -> SessionState
---insert var expr (n, defs, envv) = (n + 1, newDefs'', newEnv)
---  where
---    imDeps = IntSet.fromList . Map.elems . Map.restrictKeys envv . freeVars $ expr
---    deps = IntSet.foldl' (\acc i -> IntSet.union acc . maybe IntSet.empty depends . IntMap.lookup i $ defs) imDeps imDeps
---    def = Definition
---      { var = var
---      , expr = Text.pack $ printExpr expr
---      , free = freeVars expr
---      , depends = deps
---      , uses = 1
---      }
---    increaseUse d@Definition { uses } = d { uses = uses + 1 }
---    -- Increase all dependencies uses by one
---
---
---    newDefs = IntSet.foldl (\s i -> IntMap.adjust increaseUse i s) defs deps
---    -- If we have overwritten a variable in the env, decrease the old definitions use by one
---    -- TODO: Remove unused definitions with propagation
---    newDefs' = maybe id decrease (Map.lookup var envv) newDefs
---
---
---    newDefs'' = IntMap.insert n def newDefs'
---    newEnv = Map.insert var n envv
---
---deleteDef :: Int -> IntMap Definition -> IntMap Definition
---deleteDef key map = case IntMap.lookup key map of
---  Nothing -> map
---  Just Definition { depends } -> IntMap.delete key res
---    where
---      res = IntSet.foldl (\m i -> decrease i m) map depends
---
---decrease :: Int -> IntMap Definition -> IntMap Definition
---decrease key map = case IntMap.lookup key map of
---  Nothing -> map
---  Just Definition { uses = 1, depends } -> IntMap.delete key res
---    where
---      res = IntSet.foldl (\m i -> decrease i m) map depends
---  Just def@Definition { uses } -> IntMap.insert key def { uses = uses - 1 } map
---
---depNames :: IntMap Definition -> Definition -> Set VarName
---depNames m Definition { depends } = undefined var depends
---
---conflicts :: Definition -> Definition -> Bool
---conflicts Definition { free = lf } Definition { free = rf } = undefined
---
---eval :: SessionState -> NExpr -> ()
---eval (_, defs, env) expr = undefined
---  where
---    imDeps = Map.elems . Map.restrictKeys env . freeVars $ expr
---    trans = foldl (\acc i -> acc `IntSet.union` maybe IntSet.empty depends (IntMap.lookup i defs)) IntSet.empty imDeps
---    toRemove = IntMap.keysSet defs IntSet.\\ trans
---    new = IntSet.foldl (\d s -> deleteDef s d) defs toRemove
---
---    unused :: IntMap Definition -> IntSet
---    unused = IntMap.keysSet . IntMap.filter (\Definition { uses } -> uses == 1)
---
---    select :: IntMap Definition -> IntSet -> IntSet
---    select map set = fst $ IntSet.foldl (\(ai, as) el -> if Set.null (as `Set.intersection` maybe Set.empty free (IntMap.lookup el map)) then (IntSet.insert el ai, as `Set.union` maybe Set.empty free (IntMap.lookup el map)) else (ai, as)) (IntSet.empty, Set.empty) set
---      where
-
-
-
---insert :: VarName -> NExpr -> VarEnv -> VarEnv
---insert var expr env = Map.insert var def env
---  where
---    freePlusSelf = Set.insert var $ freeVars expr
---    deps = Map.restrictKeys env freePlusSelf
---    def = Definition (Text.pack $ printExpr expr) deps
-
 
 doNix :: Text -> NExpr
 doNix input = case parseNixText input of

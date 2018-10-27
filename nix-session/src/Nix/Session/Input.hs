@@ -56,7 +56,7 @@ parseNixAssign = comparingParse (whiteSpace *> nixBinders <* eof) (\t -> "with n
 standardNixParse :: (MonadIO m, MonadError String m) => String -> m ()
 standardNixParse input = do
   -- TODO: Make a read env to save this
-  liftIO $ putStrLn $ "Doing nix-instantiate with: " ++ input
+  --liftIO $ putStrLn $ "Doing nix-instantiate with: " ++ input
   nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
   let args = ["--parse", "-E", input ]
   (exitCode, _, stderr) <- liftIO $ readProcessWithExitCode nixInstantiateExe args ""

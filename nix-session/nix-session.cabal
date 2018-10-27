@@ -36,6 +36,7 @@ library
                      , process
                      , typed-process
                      , directory
+                     , filepath
                      , lens
                      , file-embed
                      , bytestring

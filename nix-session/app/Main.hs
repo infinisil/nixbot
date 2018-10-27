@@ -10,6 +10,7 @@ import           Nix.Session
 import           Nix.Session.Config
 import           System.Directory
 import           System.FilePath
+import           System.IO
 
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 
@@ -17,18 +18,23 @@ main :: IO ()
 main = do
   nixInstantiate <- fromMaybe (error "Couldn't find nix-instantiate executable") <$> findExecutable "nix-instantiate"
   config <- getConfig nixInstantiate
-  let env = Env { _nixInstantiate = nixInstantiate
-                , _globalConfig = config
-                }
-  runReaderT (evalStateT thething startState) env
+  menv <- initEnv config
+  putStr "> "
+  case menv of
+    Left err  -> fail err
+    Right env -> evalStateT thething env
 
 
-thething :: (MonadIO m, MonadState SessionState m, MonadReader Env m) => m ()
+thething :: (MonadIO m, MonadState Env m) => m ()
 thething = do
-  line <- pack <$> liftIO getLine
-  result <- processText line
-  liftIO $ putStrLn result
-  thething
+  eof <- liftIO isEOF
+  if eof then saveEnv
+  else do
+    line <- pack <$> liftIO getLine
+    result <- processText line
+    liftIO $ putStr result
+    liftIO $ putStr "> "
+    thething
 
 getConfig :: FilePath -> IO GlobalConfig
 getConfig nixInstantiate = do
