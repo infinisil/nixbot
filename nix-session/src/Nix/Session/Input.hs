@@ -15,15 +15,21 @@ import           System.Process               hiding (Inherit)
 import           Nix.Expr
 import           Nix.Parser
 import           Text.Megaparsec              (eof, try)
+import qualified Text.Megaparsec.Char         as MC
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 data InputError = HNixParseFailure Doc
-                | NixParseFailure String deriving Show
+                | NixParseFailure String
+                | CommandParseFailure deriving Show
 
 data Input = Nix NixAction
-           | Command ()
+           | Command Command
            | Nop
            deriving Show
+
+data Command = ViewDefinition Text
+             deriving Show
+
 
 data NixAction = Assignments [Binding NExprLoc]
                | Evaluation NExprLoc
@@ -31,13 +37,18 @@ data NixAction = Assignments [Binding NExprLoc]
 
 parseInput :: (MonadIO m, MonadError InputError m) => Text -> m Input
 parseInput input = case Text.uncons input of
-  Just (':', rest) -> return $ Command $ parseCommand input
+  Just (':', rest) -> case parseCommand rest of
+       Failure err -> throwError CommandParseFailure
+       Success cmd -> return $ Command cmd
   _ -> if Text.all isSpace input
          then return Nop
          else Nix <$> parseNix input
 
-parseCommand :: Text -> ()
-parseCommand str = ()
+parseCommand :: Text -> Result Command
+parseCommand str = parseFromText commandParser str
+
+commandParser :: Parser Command
+commandParser = ViewDefinition <$> fmap Text.pack (MC.string "v" *> MC.space1 *> many MC.anyChar)
 
 isAssignmentParser = whiteSpace *> ((nixSelector *> symbol "=") <|> symbol "inherit")
 

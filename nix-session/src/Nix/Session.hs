@@ -166,7 +166,7 @@ processText :: (MonadIO m, MonadState Env m) => Text -> m String
 processText line = do
   parsed <- runExceptT $ parseInput line
   result <- case parsed of
-    Left err -> return $ "error: " ++ show err
+    Left err -> return $ "error: " ++ show err ++ "\n"
     Right (Nix (Assignments bindings)) -> do
       definedVars <- Map.keysSet <$> use (primarySession.sessionState.roots)
       case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
@@ -179,6 +179,13 @@ processText line = do
           return "Did assign\n"
     Right (Nix (Evaluation expr)) -> do
       eval $ stripAnnotation expr
+    Right (Command (ViewDefinition var)) -> do
+      mexprnum <- use $ primarySession.sessionState.roots.at var
+      case mexprnum of
+        Nothing -> return "No such variable\n"
+        Just exprnum -> do
+          mexpr <- use $ primarySession.sessionState.definitions.ix exprnum.expr
+          return . Text.unpack $ var <> " = " <> mexpr <> "\n"
     Right _ -> return "Doing nothing\n"
   s <- use (primarySession . sessionState)
   --liftIO $ print s
