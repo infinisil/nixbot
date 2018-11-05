@@ -186,6 +186,9 @@ processText line = do
         Just exprnum -> do
           mexpr <- use $ primarySession.sessionState.definitions.ix exprnum.expr
           return . Text.unpack $ var <> " = " <> mexpr <> "\n"
+    Right (Command ViewConfig) -> do
+      config <- use $ primarySession.sessionConfig
+      return $ show config
     Right _ -> return "Doing nothing\n"
   s <- use (primarySession . sessionState)
   --liftIO $ print s

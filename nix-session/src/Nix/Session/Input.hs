@@ -28,6 +28,7 @@ data Input = Nix NixAction
            deriving Show
 
 data Command = ViewDefinition Text
+             | ViewConfig
              deriving Show
 
 
@@ -49,6 +50,7 @@ parseCommand str = parseFromText commandParser str
 
 commandParser :: Parser Command
 commandParser = ViewDefinition <$> fmap Text.pack (MC.string "v" *> MC.space1 *> many MC.anyChar)
+            <|> MC.string "config" *> pure ViewConfig
 
 isAssignmentParser = whiteSpace *> ((nixSelector *> symbol "=") <|> symbol "inherit")
 
