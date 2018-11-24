@@ -55,11 +55,11 @@ amqpOptions Config { user, password } = defaultConnectionOpts
 getConfig :: IO Config
 getConfig = do
   configFile <- execParser opts >>= makeAbsolute
-  optionsFile <- getDataFileName "options.nix"
+  optionsFile <- getDataFileName "nix/default.nix"
   nixInstPath <- fromMaybe (fail "Couldn't find nix-instantiate executable") <$> findExecutable "nix-instantiate"
 
   result <- nixInstantiate nixInstPath (defNixEvalOptions $ Right optionsFile)
-    { arguments = M.singleton "cfg" configFile
+    { arguments = M.singleton "config" configFile
     , mode = Json
     }
   case result of

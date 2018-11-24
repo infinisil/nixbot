@@ -12,7 +12,7 @@ category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
-data-files:          options.nix
+data-files:          nix/*.nix
 
 executable nixbot
   hs-source-dirs:      src
