@@ -1,53 +1,56 @@
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE NamedFieldPuns    #-}
+{-# LANGUAGE OverloadedStrings #-}
 module NixEval ( nixInstantiate
                , NixOptions(..)
+               , unsetNixOptions
                , EvalMode(..)
-               , publicOptions
-               , def
                , NixEvalOptions(..)
+               , defNixEvalOptions
+               , outputTransform
                ) where
 
-import           Control.Monad.IO.Class
+import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as BS
 import           Data.Char
 import           Data.Default
-import           Data.Function          (on)
+import           Data.Function        (on)
 import           Data.List
-import           Data.Map               (Map)
-import qualified Data.Map               as M
+import           Data.Map             (Map)
+import qualified Data.Map             as M
 import           Data.Maybe
 import           Data.Word
 import           System.Exit
 import           System.Process
-import           Text.Megaparsec        as P
-import           Text.Megaparsec.Char   as C
+import qualified System.Process.Typed as TP
+import           Text.Megaparsec      as P
+import           Text.Megaparsec.Char as C
 import           Text.Read
 
 data NixOptions = NixOptions
-  { cores                     :: Int
-  , fsyncMetadata             :: Bool
-  , restrictEval              :: Bool
-  , sandbox                   :: Bool
-  , timeout                   :: Int
-  , maxJobs                   :: Int
-  , allowImportFromDerivation :: Bool
-  , allowedUris               :: [String]
-  , showTrace                 :: Bool
+  { cores                     :: Maybe Int
+  , fsyncMetadata             :: Maybe Bool
+  , restrictEval              :: Maybe Bool
+  , sandbox                   :: Maybe Bool
+  , timeout                   :: Maybe Int
+  , maxJobs                   :: Maybe Int
+  , allowImportFromDerivation :: Maybe Bool
+  , allowedUris               :: Maybe [String]
+  , showTrace                 :: Maybe Bool
   }
   deriving (Show)
 
-instance Default NixOptions where
-  def = NixOptions
-    { cores = 1
-    , fsyncMetadata = True
-    , restrictEval = False
-    , sandbox = False
-    , timeout = 0
-    , maxJobs = 1
-    , allowImportFromDerivation = True
-    , allowedUris = []
-    , showTrace = True
-    }
-
+unsetNixOptions = NixOptions
+  { cores = Nothing
+  , fsyncMetadata = Nothing
+  , restrictEval = Nothing
+  , sandbox = Nothing
+  , timeout = Nothing
+  , maxJobs = Nothing
+  , allowImportFromDerivation = Nothing
+  , allowedUris = Nothing
+  , showTrace = Nothing
+  }
+{-
 publicOptions :: NixOptions
 publicOptions = def
   { cores = 0
@@ -58,32 +61,26 @@ publicOptions = def
   , maxJobs = 0
   , allowImportFromDerivation = False
   }
+-}
 
 optionsToArgs :: NixOptions -> [String]
-optionsToArgs NixOptions
-  { cores
-  , fsyncMetadata
-  , restrictEval
-  , sandbox
-  , timeout
-  , maxJobs
-  , allowImportFromDerivation
-  , allowedUris
-  , showTrace
-  } = concat [ [ "--option", name, value ] | (name, value) <-
-        [ ("cores", show cores)
-        , ("fsync-metadata", bool fsyncMetadata)
-        , ("restrict-eval", bool restrictEval)
-        , ("sandbox", bool sandbox)
-        , ("timeout", show timeout)
-        , ("max-jobs", show maxJobs)
-        , ("allow-import-from-derivation", bool allowImportFromDerivation)
-        , ("allowed-uris", unwords allowedUris)
-        , ("show-trace", bool showTrace)
-        ] ]
-      where
-        bool True  = "true"
-        bool False = "false"
+optionsToArgs opts = concat
+  [ opt "cores" cores show
+  , opt "fsync-metadata" fsyncMetadata bool
+  , opt "restrict-eval" restrictEval bool
+  , opt "sandbox" sandbox bool
+  , opt "timeout" timeout show
+  , opt "max-jobs" maxJobs show
+  , opt "allow-import-from-derivation" allowImportFromDerivation bool
+  , opt "allowed-uris" allowedUris unwords
+  , opt "show-trace" showTrace bool
+  ] where
+    opt :: String -> (NixOptions -> Maybe a) -> (a -> String) -> [String]
+    opt name get toStr = case get opts of
+      Nothing    -> []
+      Just value -> [ "--option", name, toStr value ]
+    bool True  = "true"
+    bool False = "false"
 
 data EvalMode = Parse | Lazy | Strict | Json
 
@@ -94,44 +91,49 @@ modeToArgs Strict = ["--eval", "--strict"]
 modeToArgs Json   = ["--eval", "--strict", "--json"]
 
 data NixEvalOptions = NixEvalOptions
-  { contents   :: String
+  { contents   :: Either ByteString FilePath
   , attributes :: [String]
   , arguments  :: Map String String
   , nixPath    :: [String]
   , mode       :: EvalMode
   , options    :: NixOptions
-  , transform  :: String -> String
   }
 
-instance Default NixEvalOptions where
-  def = NixEvalOptions
-    { contents = ""
-    , attributes = []
-    , arguments = M.empty
-    , nixPath = []
-    , mode = Lazy
-    , options = def
-    , transform = outputTransform
-    }
+defNixEvalOptions :: Either ByteString FilePath -> NixEvalOptions
+defNixEvalOptions file = NixEvalOptions
+  { contents = file
+  , attributes = []
+  , arguments = M.empty
+  , nixPath = []
+  , mode = Lazy
+  , options = unsetNixOptions
+  }
 
-nixInstantiatePath = "/run/current-system/sw/bin/nix-instantiate"
+toProc :: FilePath -> NixEvalOptions -> TP.ProcessConfig () () ()
+toProc nixInstantiatePath NixEvalOptions { contents, attributes, arguments, nixPath, mode, options } = let
+  opts = modeToArgs mode
+    ++ [case contents of
+          Left _     -> "-"
+          Right path -> path
+       ]
+    ++ concatMap (\a -> [ "-A", a ]) attributes
+    ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs arguments)
+    ++ concatMap (\p -> [ "-I", p ]) nixPath
+    ++ optionsToArgs options
+  process = TP.proc nixInstantiatePath opts
+  in case contents of
+    Left bytes -> TP.setStdin (TP.byteStringInput bytes) process
+    Right _    -> process
 
-nixInstantiate :: MonadIO m => NixEvalOptions -> m (Either String String)
-nixInstantiate NixEvalOptions { contents, attributes, arguments, nixPath, mode, options, transform } = do
-  liftIO . putStrLn $ "Calling nix-instantiate with options:\n" ++ concatMap (\o -> "\t" ++ o ++ "\n") opts ++ "\nwith file:\n" ++ contents ++ "\n"
-  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiatePath opts contents
-  liftIO . putStrLn $ "Got on stdout:\n" ++ stdout ++ "\n"
-  liftIO . putStrLn $ "Got on stderr:\n" ++ stderr ++ "\n"
-  case exitCode of
-    ExitSuccess      -> return . Right $ transform stdout
-    ExitFailure code -> return . Left $ transform stderr
-  where
-    opts = modeToArgs mode
-      ++ [ "-" ]
-      ++ concatMap (\a -> [ "-A", a ]) attributes
-      ++ concatMap (\(var, val) -> [ "--arg", var, val ]) (M.assocs arguments)
-      ++ concatMap (\p -> [ "-I", p ]) nixPath
-      ++ optionsToArgs options
+
+nixInstantiate :: FilePath -> NixEvalOptions -> IO (Either ByteString ByteString)
+nixInstantiate nixInstPath opts = toEither <$> TP.readProcess (toProc nixInstPath opts)
+  where toEither (ExitSuccess, stdout, _)   = Right stdout
+        toEither (ExitFailure _, _, stderr) = Left stderr
+
+
+
+
 
 data Command = Command [Int] Char deriving Show
 

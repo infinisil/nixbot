@@ -12,6 +12,8 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.State.Class
+import           Data.Bifunctor             (bimap)
+import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.List
 import           Data.Maybe                 (fromMaybe, listToMaybe,
                                              maybeToList)
@@ -77,12 +79,17 @@ nixpkgs = (++ "/nixpkgs") <$> reader stateDir
 nixEval :: (MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
 nixEval contents eval = do
   nixpkgs <- nixpkgs
-  nixInstantiate def
-    { contents = contents
-    , mode = if eval then Lazy else Parse
+  let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
+  res <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
+    { mode = if eval then Lazy else Parse
     , nixPath = [ "nixpkgs=" ++ nixpkgs ]
-    , options = publicOptions
+    , options = unsetNixOptions
+      { allowImportFromDerivation = Just False
+      , restrictEval = Just True
+      , sandbox = Just True
+      }
     }
+  return $ bimap (outputTransform . BS.unpack) (outputTransform . BS.unpack) res
 
 tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
 tryMod mod = do

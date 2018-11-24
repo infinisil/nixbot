@@ -60,3 +60,4 @@ executable nixbot
                      , http-client-tls
                      , time
                      , optparse-applicative
+                     , typed-process

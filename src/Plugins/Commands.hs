@@ -4,28 +4,29 @@ module Plugins.Commands (commandsPlugin) where
 
 import           Control.Monad.IO.Class
 import           Data.Bifunctor
-import qualified Data.ByteString.Char8   as BS
+import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.Char
 import           Data.Either
 import           Data.Either.Combinators
-import           Data.List               (findIndex, intercalate, isSuffixOf,
-                                          minimumBy, sortBy, sortOn)
-import           Data.Map                (Map)
-import qualified Data.Map                as M
-import           Data.Maybe              (catMaybes, fromJust, fromMaybe,
-                                          listToMaybe, mapMaybe, maybeToList)
-import           Data.Ord                (comparing)
-import           Data.Set                (Set)
-import qualified Data.Set                as Set
-import qualified Data.Text               as Text
+import           Data.List                  (findIndex, intercalate, isSuffixOf,
+                                             minimumBy, sortBy, sortOn)
+import           Data.Map                   (Map)
+import qualified Data.Map                   as M
+import           Data.Maybe                 (catMaybes, fromJust, fromMaybe,
+                                             listToMaybe, mapMaybe, maybeToList)
+import           Data.Ord                   (comparing)
+import           Data.Set                   (Set)
+import qualified Data.Set                   as Set
+import qualified Data.Text                  as Text
 import           Data.Versions
 import           Plugins
 import           System.Exit
 import           System.Process
 
 import           Data.Aeson
-import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
-import           Text.Read               (readMaybe)
+import           Text.EditDistance          (defaultEditCosts,
+                                             levenshteinDistance)
+import           Text.Read                  (readMaybe)
 
 import           Control.Monad.State
 import           NixEval
@@ -115,22 +116,20 @@ refinePackageList :: MonadIO m => [String] -> m [String]
 refinePackageList packages = do
   liftIO $ print $ "Called with " ++ show packages
   let nixattrs = "[" ++ concatMap (\p -> "[" ++ concatMap (\a -> "\"" ++ a ++ "\"") (splitAttrPath p ++ ["name"]) ++ "]") packages ++ "]"
-  result <- nixInstantiate def
-    { contents = "with import <nixpkgs> { config = { allowUnfree = true; allowBroken = true; allowUnsupportedSystem = true; }; }; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
-    , mode = Json
+  let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
+  let contents = "with import <nixpkgs> { config = { allowUnfree = true; allowBroken = true; allowUnsupportedSystem = true; }; }; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
+  result <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
+    { mode = Json
     , attributes = []
     , nixPath = [ "nixpkgs=/var/lib/nixbot/state/nixpkgs" ]
-    , transform = id
     }
   case result of
     Left error      -> return []
-    Right namesJson -> do
-      liftIO $ print $ "Got nixi result: " ++ namesJson
-      case decodeStrict (BS.pack namesJson) :: Maybe [Maybe String] of
-        Nothing -> do
-          liftIO $ putStrLn "Can't decode input"
-          return []
-        Just names -> return $ sortBy (\a b -> compare (length a) (length b)) . byBestNames . mapMaybe sequence . zip packages $ names
+    Right namesJson -> case decode namesJson :: Maybe [Maybe String] of
+      Nothing -> do
+        liftIO $ putStrLn "Can't decode input"
+        return []
+      Just names -> return $ sortBy (\a b -> compare (length a) (length b)) . byBestNames . mapMaybe sequence . zip packages $ names
 
 stripSuffix :: String -> String -> String
 stripSuffix suffix string = if isSuffixOf suffix string then
