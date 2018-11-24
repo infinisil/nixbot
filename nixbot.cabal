@@ -59,3 +59,4 @@ executable nixbot
                      , http-types
                      , http-client-tls
                      , time
+                     , optparse-applicative

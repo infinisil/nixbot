@@ -17,7 +17,22 @@ import           Data.Text             (Text)
 import           GHC.Generics          (Generic)
 import           Network.AMQP
 import           Paths_nixbot          (getDataFileName)
+import           System.Directory      (makeAbsolute)
 import           System.Environment    (getArgs)
+
+import           Options.Applicative
+
+parser :: Parser FilePath
+parser = argument str
+         ( metavar "FILE"
+        <> help "Config file" )
+
+opts :: ParserInfo FilePath
+opts = info (parser <**> helper)
+   ( fullDesc
+  <> progDesc "Nixbot"
+  <> header "nixbot - nix bot"
+   )
 
 data Config = Config
   { user     :: Text
@@ -38,7 +53,7 @@ amqpOptions Config { user, password } = defaultConnectionOpts
 
 getConfig :: IO Config
 getConfig = do
-  configFile:_ <- getArgs
+  configFile <- execParser opts >>= makeAbsolute
 
   optionsFile <- getDataFileName "options.nix"
   bytes <- BS.readFile optionsFile
