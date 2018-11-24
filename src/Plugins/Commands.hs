@@ -216,7 +216,7 @@ commandsPlugin = MyPlugin M.empty trans "commands"
                       return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
                 _ -> do
                   old <- gets $ M.lookup cmd
-                  modify $ M.insertWith (\(uses, _) (_, new) -> (uses, new)) cmd (0, unwords vals)
+                  modify $ M.insertWith (\(_, new) (uses, _) -> (uses, new)) cmd (0, unwords vals)
                   case old of
                     Nothing -> return [ cmd ++ " defined" ]
                     Just (_, val) -> return [ cmd ++ " redefined, was defined as: " ++ val ]
