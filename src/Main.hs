@@ -5,7 +5,6 @@
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE TemplateHaskell       #-}
 
 
 module Main where
@@ -118,46 +117,46 @@ server = do
 
 start :: (MonadReader Env m, MonadLogger m, MonadIO m) => m ()
 start = do
-  $(logDebug) "Got connection"
+  logDebugN "Got connection"
   conn <- reader connection
   chan <- liftIO $ A.openChannel conn
-  $(logDebug) "Got channel"
+  logDebugN "Got channel"
 
   (publishQueueName, _, _) <- liftIO $ A.declareQueue chan $ A.newQueue
     { A.queueName = "queue-publish"
     , A.queuePassive = True
     }
-  $(logDebug) $ "Declared queue with name " <> pack (show publishQueueName)
+  logDebugN $ "Declared queue with name " <> pack (show publishQueueName)
 
   (myQueue, _, _) <- liftIO $ A.declareQueue chan $ A.newQueue
     { A.queueName = ""
     , A.queueAutoDelete = True
     , A.queueExclusive = True
     }
-  $(logDebug) $ "Declared my queue with name " <> pack (show myQueue)
+  logDebugN $ "Declared my queue with name " <> pack (show myQueue)
 
   liftIO $ A.declareExchange chan exchange
-  $(logDebug) "Declared exchange"
+  logDebugN "Declared exchange"
 
   liftIO $ A.bindQueue chan myQueue "exchange-messages" "queue-publish"
-  $(logDebug) "Bound queue"
+  logDebugN "Bound queue"
 
   liftIO $ A.confirmSelect chan False
-  $(logDebug) "disabled nowait"
+  logDebugN "disabled nowait"
 
   cfg <- reader config
   cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
   tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage cache cfg chan)
-  $(logDebug) $ "Started consumer with tag " <> pack (show tag)
+  logDebugN $ "Started consumer with tag " <> pack (show tag)
 
   var <- liftIO newEmptyTMVarIO
   liftIO $ A.addConnectionClosedHandler conn True $ writeDone var
-  $(logDebug) "terminating if enter is pressed..."
+  logDebugN "terminating if enter is pressed..."
   liftIO . atomically $ takeTMVar var
 
 onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
 onInterrupt e = do
-  $(logInfoSH)$ "Interrupted, closing connection" ++ show e
+  logInfoN $ "Interrupted, closing connection" <> Text.pack (show e)
   conn <- reader connection
   liftIO $ A.closeConnection conn
 

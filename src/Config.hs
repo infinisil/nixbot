@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
 
 module Config ( getConfig
               , amqpOptions
@@ -17,6 +16,7 @@ import qualified Data.Map              as M
 import           Data.Text             (Text)
 import           GHC.Generics          (Generic)
 import           Network.AMQP
+import           Paths_nixbot          (getDataFileName)
 import           System.Environment    (getArgs)
 
 data Config = Config
@@ -40,8 +40,11 @@ getConfig :: IO Config
 getConfig = do
   configFile:_ <- getArgs
 
+  optionsFile <- getDataFileName "options.nix"
+  bytes <- BS.readFile optionsFile
+
   result <- nixInstantiate def
-    { contents = BS.unpack $(embedFile "options.nix")
+    { contents = BS.unpack bytes
     , arguments = M.singleton "cfg" ("import " ++ configFile)
     , nixPath = ["nixpkgs=https://github.com/NixOS/nixpkgs-channels/archive/nixos-unstable.tar.gz"]
     , mode = Json

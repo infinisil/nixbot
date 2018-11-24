@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell   #-}
 module Plugins.Pr (prPlugin, Settings(..), ParsedIssue(..), ParseType(..)) where
 
 import           Plugins
@@ -17,9 +16,9 @@ import           Data.Maybe
 import           GHC.Generics              (Generic)
 import           Text.Regex.TDFA
 
+import           Data.List
 import           Data.Time
 import           Utils
-import           Data.List
 
 import qualified Data.Text                 as Text
 
@@ -33,19 +32,19 @@ import           GitHub.Data.Name
 
 fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> Settings -> ParsedIssue -> m (Maybe String)
 fetchInfo manager settings@Settings { defOwner, defRepo } pissue@(ParsedIssue parseType owner repo number) = do
-  $(logInfoSH)$ "Fetching info for issue " ++ owner ++ "/" ++ repo ++ "#" ++ show number
+  logInfoN $ "Fetching info for issue " <> Text.pack owner <> "/" <> Text.pack repo <> "#" <> Text.pack (show number)
   result <- liftIO . executeRequest' $ issueR owner' repo' number'
   case result of
     Left error -> do
-      $(logWarnSH)$ "Got error from github request (might indicate that this issue doesn't exist): " ++ show error
+      logWarnN $ "Got error from github request (might indicate that this issue doesn't exist): " <> Text.pack (show error)
       return Nothing
     Right issue@Issue { issueHtmlUrl = Nothing } -> do
-      $(logWarnSH)$ "Issue didn't have an url for some reason: " ++ show issue
+      logWarnN $ "Issue didn't have an url for some reason: " <> Text.pack (show issue)
       return Nothing
     Right issue@Issue { issueHtmlUrl = Just url } -> Just <$> do
       state <- case (issuePullRequest issue, issueState issue) of
         (Just _, StateClosed) -> do
-          $(logInfoSH)$ "This issue is a PR and closed, fetching to see if it's merged"
+          logInfoN "This issue is a PR and closed, fetching to see if it's merged"
           pullResult <- liftIO $ executeRequest' $ pullRequestR owner' repo' number'
           return $ case pullResult of
             Right PullRequest { pullRequestMerged = True } -> "merged"

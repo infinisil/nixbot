@@ -12,6 +12,7 @@ category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  README.md
+data-files:          options.nix
 
 executable nixbot
   hs-source-dirs:      src
@@ -30,6 +31,7 @@ executable nixbot
                        Plugins.Unreg
                        NixEval
                        IRC
+                       Paths_nixbot
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , amqp
