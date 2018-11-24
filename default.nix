@@ -7,10 +7,27 @@ let
   inherit (pkgs) lib;
   hlib = pkgs.haskell.lib;
 
-  hpkgs = (pkgs.haskellPackages.extend (pkgs.haskell.lib.packageSourceOverrides {
-    nixbot = ./.;
-    nix-session = ./nix-session;
-  })).extend (self: super: {
+  hpkgs = pkgs.haskellPackages.extend (self: super: {
+    nixbot = (self.callCabal2nix "nixbot" (lib.sourceByRegex ./. [
+      "^src.*$"
+      "^.*\\.cabal$"
+      "^LICENSE$"
+      "^options.nix$"
+    ]) {}).overrideAttrs (drv: {
+      nativeBuildInputs = drv.nativeBuildInputs or [] ++ [ pkgs.makeWrapper ];
+      postInstall = drv.postInstall or "" + ''
+        wrapProgram $out/bin/nixbot \
+          --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.gnutar pkgs.gzip ]}"
+      '';
+    });
+    nix-session = self.callCabal2nix "nix-session" (lib.sourceByRegex ./nix-session [
+      "^app.*$"
+      "^src.*$"
+      "^nix.*$"
+      "^.*\\.cabal$"
+      "^LICENSE$"
+    ]) {};
+
     hnix = pkgs.haskell.lib.overrideSrc super.hnix {
       # https://github.com/haskell-nix/hnix/pull/363
       src = fetchTarball {

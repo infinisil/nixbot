@@ -15,12 +15,9 @@
     description = "Nix bot";
     wantedBy = [ "multi-user.target" ];
     after = [ "network.target" ];
-    script = ''
-      export PATH="${lib.makeBinPath (with pkgs; [ gnutar gzip ])}:$PATH"
-      ${import ./default.nix {}}/bin/nixbot ${./release.nix}
-    '';
     serviceConfig = {
       User = "nixbot";
+      ExecStart = "${import ./default.nix {}}/bin/nixbot ${./release.nix}";
       Restart = "always";
       RestartSec = 1;
       MemoryMax = "100M";
