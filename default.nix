@@ -12,7 +12,7 @@ let
       "^src.*$"
       "^.*\\.cabal$"
       "^LICENSE$"
-      "^options.nix$"
+      "^nix.*$"
     ]) {}).overrideAttrs (drv: {
       nativeBuildInputs = drv.nativeBuildInputs or [] ++ [ pkgs.makeWrapper ];
       postInstall = drv.postInstall or "" + ''
