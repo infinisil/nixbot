@@ -28,6 +28,15 @@ let
       "^LICENSE$"
     ]) {};
 
+    nix-session-types = self.callCabal2nix "nix-session-types" (lib.sourceByRegex ./nix-session-types [
+      "^src.*$"
+      "^.*\\.cabal$"
+      "^LICENSE$"
+    ]) {};
+
+    megaparsec = self.megaparsec_7_0_4;
+    versions = self.versions_3_5_0;
+
     hnix = import (pkgs.fetchgit {
       # https://github.com/haskell-nix/hnix/pull/416
       url = "https://github.com/infinisil/hnix";
@@ -37,8 +46,10 @@ let
       inherit pkgs;
       # Needed for some reason, not sure why
       returnShellEnv = false;
+      doProfiling = true;
     };
   });
 in hpkgs.nixbot // {
   inherit hpkgs pkgs;
+  nix-session = hlib.justStaticExecutables hpkgs.nix-session;
 }

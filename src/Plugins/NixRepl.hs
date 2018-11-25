@@ -52,7 +52,7 @@ parser =
         C.space
         C.char ':'
         cmd <- literal
-        args <- P.many (C.space *> P.some (C.notChar ' '))
+        args <- P.many (C.space *> P.some (P.anySingleBut ' '))
         C.space
         return $ Command cmd args
 

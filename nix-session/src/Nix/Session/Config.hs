@@ -1,5 +1,4 @@
-{-# LANGUAGE DeriveGeneric   #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Nix.Session.Config where
 
@@ -12,6 +11,7 @@ import           Data.Map                   (Map)
 import           Data.SafeCopy
 import           Data.Text                  (Text, pack)
 import           GHC.Generics               (Generic)
+import           Nix.Session.Types
 import           Paths_nix_session          (getDataFileName)
 import           System.Exit
 import           System.Process.Typed       (proc, readProcess)
@@ -38,32 +38,6 @@ What to configure for nix-session:
 - Should nixPath and options be part of the session config? Because evaluating things from secondary sessions can't honor these.
 -}
 
-data SessionConfig = SessionConfig
-  { _selfName  :: String
-  , _metaName  :: String
-  , _fixedDefs :: Map Text Text
-  } deriving (Show, Generic)
-
-data GlobalConfig = GlobalConfig
-  { _primarySessionFile    :: FilePath
-  , _secondarySessionFiles :: Map String FilePath
-  , _sessionDefaults       :: SessionConfig
-  , _nixPath               :: Maybe [String]
-  , _nixOptions            :: Map String String
-  } deriving (Show, Generic)
-
-makeLenses ''SessionConfig
-makeLenses ''GlobalConfig
-
-deriveSafeCopy 1 'base ''SessionConfig
-
-lensOptions = defaultOptions { fieldLabelModifier = tail }
-
-instance FromJSON SessionConfig where
-  parseJSON = genericParseJSON lensOptions
-
-instance FromJSON GlobalConfig where
-  parseJSON = genericParseJSON lensOptions
 
 evalConfig :: FilePath -> FilePath -> IO GlobalConfig
 evalConfig nixInstantiate config = do

@@ -3,22 +3,23 @@ module Nix.Session.Input where
 
 import           Data.Char
 import           Data.Maybe
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
+import           Data.Text                 (Text)
+import qualified Data.Text                 as Text
 
 import           Control.Monad.Combinators
 import           Control.Monad.Except
 import           System.Directory
 import           System.Exit
-import           System.Process               hiding (Inherit)
+import           System.Process            hiding (Inherit)
 
+import           Data.Text.Prettyprint.Doc (Doc)
+import           Data.Void
 import           Nix.Expr
 import           Nix.Parser
-import           Text.Megaparsec              (eof, try)
-import qualified Text.Megaparsec.Char         as MC
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
+import           Text.Megaparsec           (anySingle, eof, try)
+import qualified Text.Megaparsec.Char      as MC
 
-data InputError = HNixParseFailure Doc
+data InputError = HNixParseFailure (Doc Void)
                 | NixParseFailure String
                 | CommandParseFailure deriving Show
 
@@ -49,7 +50,7 @@ parseCommand :: Text -> Result Command
 parseCommand str = parseFromText commandParser str
 
 commandParser :: Parser Command
-commandParser = ViewDefinition <$> fmap Text.pack (MC.string "v" *> MC.space1 *> many MC.anyChar)
+commandParser = ViewDefinition <$> fmap Text.pack (MC.string "v" *> MC.space1 *> many anySingle)
             <|> MC.string "config" *> pure ViewConfig
 
 isAssignmentParser = whiteSpace *> ((nixSelector *> symbol "=") <|> symbol "inherit")

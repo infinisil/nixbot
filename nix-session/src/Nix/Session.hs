@@ -1,33 +1,32 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase       #-}
 {-# LANGUAGE NamedFieldPuns   #-}
-{-# LANGUAGE TemplateHaskell  #-}
 
 module Nix.Session where
 
-import           Control.Lens                 hiding (uses)
+import           Control.Lens                            hiding (uses)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
-import qualified Data.ByteString              as BS
+import qualified Data.ByteString                         as BS
 import           Data.Fix
-import           Data.Foldable                (traverse_)
-import           Data.IntMap                  (IntMap)
-import qualified Data.IntMap                  as IntMap
-import           Data.IntSet                  (IntSet)
-import qualified Data.IntSet                  as IntSet
-import           Data.List.NonEmpty           (NonEmpty (..))
-import           Data.Map                     (Map)
-import qualified Data.Map                     as Map
+import           Data.Foldable                           (traverse_)
+import           Data.IntMap                             (IntMap)
+import qualified Data.IntMap                             as IntMap
+import           Data.IntSet                             (IntSet)
+import qualified Data.IntSet                             as IntSet
+import           Data.List.NonEmpty                      (NonEmpty (..))
+import           Data.Map                                (Map)
+import qualified Data.Map                                as Map
 import           Data.Maybe
 import           Data.SafeCopy
 import           Data.Sequence
-import qualified Data.Sequence                as Seq
-import           Data.Serialize               (runGet, runPut)
-import           Data.Set                     (Set, (\\))
-import qualified Data.Set                     as Set
-import           Data.Text                    (Text)
-import qualified Data.Text                    as Text
+import qualified Data.Sequence                           as Seq
+import           Data.Serialize                          (runGet, runPut)
+import           Data.Set                                (Set, (\\))
+import qualified Data.Set                                as Set
+import           Data.Text                               (Text)
+import qualified Data.Text                               as Text
 import           Data.Text.Lens
 import           Nix.Expr
 import           Nix.Parser
@@ -37,43 +36,14 @@ import           Nix.TH
 import           System.Directory
 import           System.Exit
 import           System.FilePath
-import           System.Process               hiding (Inherit)
-import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
-                                               renderCompact)
+import           System.Process                          hiding (Inherit)
+--import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
+--                                               renderCompact)
+import           Data.Text.Prettyprint.Doc
+import           Data.Text.Prettyprint.Doc.Render.String
 
 import           Nix.Session.Input
-
-data Definition = Definition
-  { _varname :: VarName -- ^ The variable name of this definition
-  , _expr    :: Text -- ^ The assigned Nix expression
-  , _depends :: Map VarName Int -- ^ The dependencies as a map from variable names to definition index
-  , _numUses :: Int -- ^ How many dependents this definition has
-  } deriving (Show, Read)
-
-data SessionState = SessionState
-  { _defCount    :: Int -- ^ How many definitions have been issued
-  , _definitions :: IntMap Definition -- ^ The definitions that have been issued and are still alive, reachable by a root
-  , _roots       :: Map VarName Int -- ^ The definition roots, aka the definitions currently in scope
-  } deriving (Show, Read)
-
-data Env = Env
-  { _nixInstantiate    :: FilePath -- ^ Path to nix-instantiate binary
-  , _primarySession    :: Session -- ^ primary session, have read-write access to this
-  , _secondarySessions :: Map String Session -- ^ Secondary sessions, read-only access to these
-  , _globalConfig      :: GlobalConfig -- ^ The global nix-session configuration
-  } deriving (Show)
-
--- | All data associated with a specific session, ultimately to be serialized to files for session persistence.
-data Session = Session
-  { _sessionFile   :: FilePath -- ^ The file this session is (to be) stored in
-  , _sessionState  :: SessionState -- ^ The state of the session, will change with new definitions issued
-  , _sessionConfig :: SessionConfig -- ^ The session config, changes infrequently and needs special handling to be changeable at all
-  } deriving (Show)
-
-makeLenses ''Definition
-makeLenses ''SessionState
-makeLenses ''Env
-makeLenses ''Session
+import           Nix.Session.Types                       hiding (VarName)
 
 initEnv :: GlobalConfig -> IO (Either String Env)
 initEnv config = do
@@ -100,11 +70,6 @@ initSession defaultConfig path = do
                              , _sessionState = SessionState 0 IntMap.empty Map.empty
                              , _sessionConfig = defaultConfig
                              }
-
-deriveSafeCopy 1 'base ''Definition
-deriveSafeCopy 1 'base ''SessionState
-deriveSafeCopy 1 'base ''Session
-
 
 increase :: MonadState SessionState m => Int -> m ()
 increase key = definitions . ix key . numUses += 1
@@ -242,14 +207,15 @@ toSymAssigns vars (NamedVar (StaticKey varname :| path@(p:ps)) expr pos)
             (pp:pps) -> mkNonRecSet . (:[]) $ NamedVar (pp :| pps) ass pos
 
 printExpr :: NExpr -> String
-printExpr expr = displayS (fun (renderCompact (prettyNix expr))) ""
+printExpr expr = renderString (fun (layoutCompact (prettyNix expr)))
   where
     fun SFail                = SFail
     fun SEmpty               = SEmpty
     fun (SChar char doc)     = SChar char $ fun doc
     fun (SText len text doc) = SText len text $ fun doc
     fun (SLine len doc)      = SChar ' ' $ fun doc
-    fun (SSGR sgr doc)       = SSGR sgr $ fun doc
+    fun (SAnnPush ann doc)   = SAnnPush ann $ fun doc
+    fun (SAnnPop doc)        = SAnnPop $ fun doc
 
 
       --thing orig [] expr = expr

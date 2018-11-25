@@ -1,0 +1,5 @@
+In order to get new-build to work with HIE:
+- link setup-config -> x/nixbot/setup-config in /home/infinisil/prj/nixbot/dist-newstyle/build/x86_64-linux/ghc-8.4.4/nixbot-0.1.0.0
+- For nix-session: Link nixbot/nix-session/dist-newstyle/build -> nixbot/dist-newstyle/build
+
+Note that HIE seems to use new-style when there's a dist-newstyle directory

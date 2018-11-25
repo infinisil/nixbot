@@ -32,7 +32,7 @@ library
                      , parser-combinators
                      , megaparsec
                      , data-fix
-                     , ansi-wl-pprint
+                     , prettyprinter
                      , process
                      , typed-process
                      , directory
@@ -43,6 +43,7 @@ library
                      , aeson
                      , cereal
                      , safecopy
+                     , nix-session-types
   hs-source-dirs:      src
   default-extensions:          OverloadedStrings
   default-language:    Haskell2010
@@ -58,5 +59,6 @@ executable nix-session
                      , directory
                      , filepath
                      , haskeline
+                     , nix-session-types
   hs-source-dirs:      app
   default-language:    Haskell2010

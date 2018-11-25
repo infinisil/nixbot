@@ -8,6 +8,7 @@ import           Data.Maybe               (fromMaybe)
 import           Data.Text                (pack)
 import           Nix.Session
 import           Nix.Session.Config
+import           Nix.Session.Types
 import           System.Console.Haskeline
 import           System.Directory
 import           System.FilePath
