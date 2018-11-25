@@ -7,8 +7,6 @@ module Config ( getConfig
               , Config(..)
               ) where
 
-import           NixEval
-
 import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.FileEmbed             (embedFile)
@@ -39,7 +37,6 @@ data Config = Config
   { user     :: Text
   , password :: Text
   , stateDir :: FilePath
-  , argsPath :: FilePath
   } deriving (Show, Generic)
 
 instance FromJSON Config where
@@ -54,14 +51,6 @@ amqpOptions Config { user, password } = defaultConnectionOpts
 
 getConfig :: IO Config
 getConfig = do
-  configFile <- execParser opts >>= makeAbsolute
-  optionsFile <- getDataFileName "nix/default.nix"
-  nixInstPath <- fromMaybe (fail "Couldn't find nix-instantiate executable") <$> findExecutable "nix-instantiate"
+  configFile <- execParser opts >>= makeAbsolute >>= BS.readFile
 
-  result <- nixInstantiate nixInstPath (defNixEvalOptions $ Right optionsFile)
-    { arguments = M.singleton "config" configFile
-    , mode = Json
-    }
-  case result of
-    Left err  -> fail $ BS.unpack err
-    Right out -> either fail return $ eitherDecode' out
+  either fail return $ eitherDecode' configFile
