@@ -38,8 +38,7 @@ let
     versions = self.versions_3_5_0;
 
     hnix = import (pkgs.fetchgit {
-      # https://github.com/haskell-nix/hnix/pull/416
-      url = "https://github.com/infinisil/hnix";
+      url = "https://github.com/haskell-nix/hnix";
       rev = "8ef09e6efa9ec7b5ec13519cac7241f0b3323df3";
       sha256 = "0wz5z4p5lvqjhsxamn3xk9daidga68g71vgkwd3w2pvajprvd4xf";
     }) {
