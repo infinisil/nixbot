@@ -67,12 +67,14 @@ initSession defaultConfig path = do
                              , _sessionConfig = defaultConfig
                              }
 
-increase :: MonadState SessionState m => Int -> m ()
-increase key = definitions . ix key . numUses += 1
+increase :: MonadState SessionState m => Maybe Int -> m ()
+increase Nothing    = return ()
+increase (Just key) = definitions . ix key . numUses += 1
 
 --
-decrease :: MonadState SessionState m => Int -> m ()
-decrease key = use (definitions . at key) >>= \case
+decrease :: MonadState SessionState m => Maybe Int -> m ()
+decrease Nothing = return ()
+decrease (Just key) = use (definitions . at key) >>= \case
   Nothing -> return ()
   Just Definition { _numUses = 0, _depends } -> do
     definitions . at key .= Nothing
@@ -83,9 +85,10 @@ trans :: MonadState SessionState m => VarName -> NExpr -> m ()
 trans var expr = do
   -- The dependencies of the expression are all definitions in scope limited to the free variables of the expression
   -- Because only the free variables might have an influence on it.
-  deps <- Map.restrictKeys <$> use roots <*> pure (freeVars expr)
+  scope <- use roots
+  let deps = Map.fromSet (`Map.lookup` scope) (freeVars expr)
   traverse_ increase deps
-  use (roots . at var) >>= maybe (return ()) decrease
+  use (roots . at var) >>= decrease
 
   let text = Text.pack $ printExpr expr
   let e = Definition var text deps 0
@@ -95,19 +98,21 @@ trans var expr = do
   definitions %= IntMap.insert defId e
   roots %= Map.insert var defId
 
+genSuper :: Set VarName -> VarName
+genSuper frees = head . Prelude.filter (not . (`Set.member` frees)) $
+  ("super"<>) . Text.pack . show <$> [0..]
+
 encodeEval :: Session -> Text -> Text
 encodeEval session expression = final
   where
     self = session^.sessionConfig.selfName
 
-    -- TODO: dynamically change the super keyword such that it can never be used
-    -- More concretely: super shouldn't be present in freeVars of the expression we assign to
-
     -- Wraps an expression e in
     -- ( e ).extends (self: super: { <var> = <val>; }) for a definition
     extend e def = "(" <> e <> ")\n\t\t" <>
-      ".extend (" <> self <> ": super: with super; { " <>
+      ".extend (" <> self <> ": " <> super <> ": with " <> super <> "; { " <>
       def^.varname <> " = " <> def^.expr <> "; })"
+      where super = genSuper (Map.keysSet $ def^.depends)
 
     -- The initial expression for above wrapping
     start = "\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})"
@@ -128,6 +133,7 @@ eval :: (MonadIO m, MonadReader Env m) => NExpr -> m String
 eval expr = do
   session <- view primarySession
   let encoded = encodeEval session (Text.pack (printExpr expr))
+  liftIO $ putStrLn (Text.unpack encoded)
 
   nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
   let args = ["--eval", "-E", Text.unpack encoded ]
@@ -169,20 +175,12 @@ processText line = do
       return $ show config
     Right _ -> return "Doing nothing\n"
   s <- use (primarySession . sessionState)
-  --liftIO $ print s
   return result
 
 doNix :: Text -> NExpr
 doNix input = case parseNixText input of
   Success expr -> expr
   Failure doc  -> error (show doc)
---s0 = return Map.empty
---s1 = insert <*> undefined
---
---data Evaluation = Evaluation
---  { evalExpr :: Text
---  , evalDeps :: [Assignment]
---  }
 
 allAssigns :: Set Text -> [Binding NExpr] -> Either String [(Text, NExpr)]
 allAssigns set bindings = concat <$> mapM (toSymAssigns set) bindings

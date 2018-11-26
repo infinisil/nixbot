@@ -30,10 +30,11 @@ data GlobalConfig = GlobalConfig
   } deriving (Show, Generic)
 
 
+
 data Definition = Definition
   { _varname :: VarName -- ^ The variable name of this definition
   , _expr    :: Text -- ^ The assigned Nix expression
-  , _depends :: Map VarName Int -- ^ The dependencies as a map from variable names to definition index
+  , _depends :: Map VarName (Maybe Int) -- ^ A map from all free variables to either the definition index they'd use as its dependency or Nothing when there was no such variable in scope
   , _numUses :: Int -- ^ How many dependents this definition has
   } deriving (Show, Read)
 
