@@ -28,22 +28,19 @@ import qualified Data.Set                                as Set
 import           Data.Text                               (Text)
 import qualified Data.Text                               as Text
 import           Data.Text.Lens
+import           Data.Text.Prettyprint.Doc
+import           Data.Text.Prettyprint.Doc.Render.String
 import           Nix.Expr
 import           Nix.Parser
 import           Nix.Pretty
 import           Nix.Session.Config
+import           Nix.Session.Input
+import           Nix.Session.Types                       hiding (VarName)
 import           Nix.TH
 import           System.Directory
 import           System.Exit
 import           System.FilePath
 import           System.Process                          hiding (Inherit)
---import           Text.PrettyPrint.ANSI.Leijen (SimpleDoc (..), displayS,
---                                               renderCompact)
-import           Data.Text.Prettyprint.Doc
-import           Data.Text.Prettyprint.Doc.Render.String
-
-import           Nix.Session.Input
-import           Nix.Session.Types                       hiding (VarName)
 
 initEnv :: GlobalConfig -> IO (Either String Env)
 initEnv config = do
@@ -54,9 +51,8 @@ initEnv config = do
 
 saveEnv :: (MonadIO m, MonadState Env m) => m ()
 saveEnv = do
-  primState <- use $ primarySession
+  primState <- use primarySession
   file <- use $ globalConfig . primarySessionFile
-  liftIO $ putStrLn $ "Saving to " ++ file
   let bs = runPut (safePut primState)
   liftIO $ createDirectoryIfMissing True (dropFileName file)
   liftIO $ BS.writeFile file bs
@@ -99,25 +95,42 @@ trans var expr = do
   definitions %= IntMap.insert defId e
   roots %= Map.insert var defId
 
-eval :: (MonadIO m, MonadState Env m) => NExpr -> m String
+encodeEval :: Session -> Text -> Text
+encodeEval session expression = final
+  where
+    self = session^.sessionConfig.selfName
+
+    -- TODO: dynamically change the super keyword such that it can never be used
+    -- More concretely: super shouldn't be present in freeVars of the expression we assign to
+
+    -- Wraps an expression e in
+    -- ( e ).extends (self: super: { <var> = <val>; }) for a definition
+    extend e def = "(" <> e <> ")\n\t\t" <>
+      ".extend (" <> self <> ": super: with super; { " <>
+      def^.varname <> " = " <> def^.expr <> "; })"
+
+    -- The initial expression for above wrapping
+    start = "\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})"
+
+    -- Combine all definitions with above two functions
+    chain = foldl extend start $ session^.sessionState.definitions
+
+    doFixed var val = var <> " = " <> val <> ";\n\t"
+    -- Transforms all fixed definitions into a line <var> = <val>; per definition
+    fixed = Text.concat . map (uncurry doFixed) <$> Map.assocs $ session^.sessionConfig.fixedDefs
+
+    final = "let\n\t" <> fixed <> self <> " = " <>
+      chain <> "; in with " <> self <> ";\n" <> expression
+
+
+-- | Evaluate an expression in
+eval :: (MonadIO m, MonadReader Env m) => NExpr -> m String
 eval expr = do
-  defs <- use (primarySession.sessionState.definitions)
-  self <- use $ globalConfig . sessionDefaults . selfName . packed
-  let chain = foldl (\acc Definition { _varname, _expr } -> "(" <> acc <> ")\n\t\t.extend (" <> self <> ": super: with super; { " <> _varname <> " = " <> _expr <> "; })") ("\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})") defs
+  session <- view primarySession
+  let encoded = encodeEval session (Text.pack (printExpr expr))
 
-  fixed <- use $ globalConfig . sessionDefaults . fixedDefs
-
-  let fixedStr = Text.concat $ map (\(n, v) -> n <> " = " <> v <> ";\n\t") (Map.assocs fixed)
-
-  let final = Text.unpack $ "let\n\t" <> fixedStr <> self <> " = " <> chain <> "; in with " <> self <> ";\n" <> Text.pack (printExpr expr)
-
-  -- Watch out for:
-  -- super not allowed in free vars
-
-  --liftIO $ putStrLn final
-  -- TODO: Make a read env to save this
   nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
-  let args = ["--eval", "-E", final ]
+  let args = ["--eval", "-E", Text.unpack encoded ]
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiateExe args ""
   case exitCode of
     ExitSuccess   -> return stdout
@@ -142,8 +155,8 @@ processText line = do
             let news = execState (trans var expr) ss
             primarySession.sessionState .= news
           return "Did assign\n"
-    Right (Nix (Evaluation expr)) -> do
-      eval $ stripAnnotation expr
+    Right (Nix (Evaluation expr)) ->
+      get >>= runReaderT (eval (stripAnnotation expr))
     Right (Command (ViewDefinition var)) -> do
       mexprnum <- use $ primarySession.sessionState.roots.at var
       case mexprnum of
@@ -216,42 +229,3 @@ printExpr expr = renderString (fun (layoutCompact (prettyNix expr)))
     fun (SLine len doc)      = SChar ' ' $ fun doc
     fun (SAnnPush ann doc)   = SAnnPush ann $ fun doc
     fun (SAnnPop doc)        = SAnnPop $ fun doc
-
-
-      --thing orig [] expr = expr
-      --thing orig (p:ps) expr = mkOper2 NUpdate orig set'
-      --  where
-      --    set' = mkNonRecSet [bind]
-      --    bind = NamedVar (p :| []) if' undefined
-      --    if' = mkIf (Fix (NHasAttr orig (p :| []))) (thing (Fix (NSelect orig (p :| []) Nothing)) ps expr) undefined
-
-
---parse :: Text -> Result Input
---parse input = if isAssignmentParser `canParse` input
---  then Assignments <$> parseAssign input
---  else Evaluation <$> parseEval input
---  where isAssignmentParser = whiteSpace *> nixSelector *> symbol "="
-
-
-
---instance Show Input where
---  show (Evaluation expr) = displayS (renderCompact (prettyNix (stripAnnotation expr))) ""
---  show (Assignments bindings) = intercalate ", " (map showBinding bindings)
---    where
---      showBinding :: Binding NExprLoc -> String
---      showBinding (NamedVar path val _) = pp ++ " = " ++ w
---        where
---          x = stripAnnotation val
---          y = prettyNix x
---          w = displayS (renderCompact y) ""
---          p = prettySelector (fmap (fmap (simpleExpr . prettyNix . stripAnnotation)) path)
---          pp = displayS (renderCompact p) ""
---      showBinding (Inherit scope keys _) = "inherit " ++ pScope scope ++ k
---        where
---          pScope Nothing = ""
---          pScope (Just n) = "(" ++ displayS (renderCompact (prettyNix (stripAnnotation n))) "" ++ ") "
---          k = intercalate " " (map prettyKey keys)
-
-    --          prettyKey (StaticKey name) = unpack name
-
-

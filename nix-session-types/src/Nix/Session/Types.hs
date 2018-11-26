@@ -16,14 +16,14 @@ import           GHC.Generics  (Generic)
 type VarName = Text
 
 data SessionConfig = SessionConfig
-  { _selfName  :: String
-  , _metaName  :: String
+  { _selfName  :: Text
+  , _metaName  :: Text
   , _fixedDefs :: Map Text Text
   } deriving (Show, Generic)
 
 data GlobalConfig = GlobalConfig
   { _primarySessionFile    :: FilePath
-  , _secondarySessionFiles :: Map String FilePath
+  , _secondarySessionFiles :: Map Text FilePath
   , _sessionDefaults       :: SessionConfig
   , _nixPath               :: Maybe [String]
   , _nixOptions            :: Map String String
@@ -46,7 +46,7 @@ data SessionState = SessionState
 data Env = Env
   { _nixInstantiate    :: FilePath -- ^ Path to nix-instantiate binary
   , _primarySession    :: Session -- ^ primary session, have read-write access to this
-  , _secondarySessions :: Map String Session -- ^ Secondary sessions, read-only access to these
+  , _secondarySessions :: Map Text Session -- ^ Secondary sessions, read-only access to these
   , _globalConfig      :: GlobalConfig -- ^ The global nix-session configuration
   } deriving (Show)
 
