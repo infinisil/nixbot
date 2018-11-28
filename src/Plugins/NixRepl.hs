@@ -73,16 +73,13 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
 
-nixpkgs :: MonadReader Config m => m String
-nixpkgs = reader nixpkgsPath
-
 nixEval :: (MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
 nixEval contents eval = do
-  nixpkgs <- nixpkgs
+  nixPath <- reader nixPath'
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
   res <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
     { mode = if eval then Lazy else Parse
-    , nixPath = [ "nixpkgs=" ++ nixpkgs ]
+    , nixPath = nixPath
     , options = unsetNixOptions
       { allowImportFromDerivation = Just False
       , restrictEval = Just True

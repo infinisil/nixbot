@@ -34,10 +34,10 @@ opts = info (parser <**> helper)
    )
 
 data Config = Config
-  { user        :: Text
-  , password    :: Text
-  , stateDir    :: FilePath
-  , nixpkgsPath :: FilePath
+  { user     :: Text
+  , password :: Text
+  , stateDir :: FilePath
+  , nixPath' :: [String]
   } deriving (Show, Generic)
 
 instance FromJSON Config where

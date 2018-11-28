@@ -38,7 +38,9 @@ in
 
     services.nixbot.configFile = mkDefault configFile;
 
-    services.nixbot.config.nixpkgsPath = "/var/lib/nixbot/nixpkgs/master/repo";
+    services.nixbot.config.nixPath' = [
+      "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
+    ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") channels;
 
     users.users.nixbot = {
       description = "User for nixbot";

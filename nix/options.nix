@@ -21,9 +21,9 @@ with lib;
       default = "/var/lib/nixbot/state";
     };
 
-    nixpkgsPath = mkOption {
-      type = types.path;
-      description = "Path to master nixpkgs";
+    nixPath' = mkOption {
+      type = types.listOf types.str;
+      description = "NIX_PATH";
     };
 
   };
