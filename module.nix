@@ -36,6 +36,8 @@ in
 
     services.nixbot.configFile = mkDefault configFile;
 
+    services.nixbot.config.nixpkgsPath = "/var/lib/nixbot/nixpkgs/master/repo";
+
     users.users.nixbot = {
       description = "User for nixbot";
       home = "/var/lib/nixbot";
@@ -45,10 +47,34 @@ in
 
     environment.systemPackages = [ pkgs.nix-index ];
 
+    systemd.timers.nixbot-master-updater = {
+      wantedBy = [ "timers.target" ];
+      timerConfig.OnUnitInactiveSec = 60;
+    };
+
+    systemd.services.nixbot-master-updater = {
+      description = "Nix bot master updater";
+      path = [ pkgs.git ];
+      script = ''
+        if [ -d nixpkgs/master/repo ]; then
+          git -C nixpkgs/master/repo pull --rebase --autostash origin master
+        else
+          mkdir -p nixpkgs/master
+          git clone https://github.com/NixOS/nixpkgs nixpkgs/master/repo
+        fi
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        User = "nixbot";
+        WorkingDirectory = "/var/lib/nixbot";
+      };
+    };
+
     systemd.services.nixbot = {
       description = "Nix bot";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
+      requires = [ "nixbot-master-updater.service" ];
       serviceConfig = {
         User = "nixbot";
         ExecStart = "${nixbot}/bin/nixbot ${cfg.configFile}";

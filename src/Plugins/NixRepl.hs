@@ -74,7 +74,7 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ "\t" ++ lit
 
 nixpkgs :: MonadReader Config m => m String
-nixpkgs = (++ "/nixpkgs") <$> reader stateDir
+nixpkgs = reader nixpkgsPath
 
 nixEval :: (MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
 nixEval contents eval = do
@@ -149,9 +149,6 @@ handle (Command "r" []) = do
 --handle (Command "r" _) = do
 --  put $ NixState M.empty []
 --  return $ Just "State got reset"
-handle (Command "u" _) = do
-  updateNixpkgs
-  return $ Just "Updated nixpkgs"
 handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
 
 defaultVariables :: Map String String
@@ -160,21 +157,6 @@ defaultVariables = M.fromList
   , ("pkgs", "import <nixpkgs> {}")
   , ("lib", "pkgs.lib")
   ]
-
-git :: MonadIO m => [String] -> m String
-git args = liftIO $ do
-  putStrLn $ "Calling git with arguments " ++ unwords args
-  readProcess "/run/current-system/sw/bin/git" args ""
-
-updateNixpkgs :: (MonadReader Config m, MonadIO m) => m String
-updateNixpkgs = do
-  nixpkgs <- nixpkgs
-  exists <- liftIO $ doesPathExist nixpkgs
-  result <- git $ if exists
-    then ["-C", nixpkgs, "pull"]
-    else ["clone", "--depth", "1", "https://github.com/NixOS/nixpkgs.git", nixpkgs]
-  liftIO $ putStrLn result
-  git ["-C", nixpkgs, "rev-parse", "HEAD"]
 
 nixreplPlugin :: (MonadReader Config m, MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
 nixreplPlugin = MyPlugin initialState trans "nixrepl"
