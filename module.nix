@@ -11,6 +11,8 @@ let
 
   nixbot = import ./default.nix {};
 
+  channels = [ "nixos-unstable" "nixos-18.09" "nixos-18.03" ];
+
 in
 
 {
@@ -50,21 +52,62 @@ in
       timerConfig.OnUnitInactiveSec = 60;
     };
 
+    systemd.timers.nixbot-channel-updater = {
+      wantedBy = [ "timers.target" ];
+      timerConfig.OnUnitInactiveSec = 60;
+    };
+
     systemd.services.nixbot-master-updater = {
       description = "Nix bot master updater";
       path = [ pkgs.git ];
       script = ''
-        if [ -d nixpkgs/master/repo ]; then
-          git -C nixpkgs/master/repo pull --rebase --autostash origin master
+        if [ -d repo ]; then
+          git -C repo fetch
+          old=$(git -C repo rev-parse @)
+          new=$(git -C repo rev-parse @{u})
+          if [ $old != $new ]; then
+            git -C repo rebase --autostash
+            echo "Updated from $old to $new"
+          fi
         else
-          mkdir -p nixpkgs/master
-          git clone https://github.com/NixOS/nixpkgs nixpkgs/master/repo
+          git clone https://github.com/NixOS/nixpkgs repo
+          git -C repo remote add channels https://github.com/NixOS/nixpkgs-channels
+          echo "Initialized at $(git -C repo rev-parse @)"
         fi
       '';
       serviceConfig = {
         Type = "oneshot";
         User = "nixbot";
-        WorkingDirectory = "/var/lib/nixbot";
+        WorkingDirectory = "/var/lib/nixbot/nixpkgs/master";
+      };
+    };
+
+    systemd.services.nixbot-channel-updater = {
+      description = "Nix bot channel updater";
+      path = [ pkgs.git ];
+      after = [ "nixbot-master-updater.service" ];
+      script = ''
+        git -C master/repo worktree prune
+        git -C master/repo fetch channels
+        ${flip (concatMapStringsSep "\n") channels (channel: ''
+          if [ -d ${channel}/repo ]; then
+            old=$(git -C ${channel}/repo rev-parse @)
+            new=$(git -C ${channel}/repo rev-parse @{u})
+            if [ $old != $new ]; then
+              git -C ${channel}/repo rebase --autostash
+              echo "Updated ${channel} from $old to $new"
+            fi
+          else
+            git -C master/repo branch -D ${channel}
+            git -C master/repo worktree add -B ${channel} $PWD/${channel}/repo remotes/channels/${channel}
+            echo "Initialized ${channel} at $(git -C ${channel}/repo rev-parse @)"
+          fi
+        '')}
+      '';
+      serviceConfig = {
+        Type = "oneshot";
+        User = "nixbot";
+        WorkingDirectory = "/var/lib/nixbot/nixpkgs";
       };
     };
 
@@ -72,7 +115,7 @@ in
       description = "Nix bot";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
-      requires = [ "nixbot-master-updater.service" ];
+      requires = [ "nixbot-master-updater.service" "nixbot-channel-updater.service" ];
       path = [ pkgs.nix-index ];
       serviceConfig = {
         User = "nixbot";
