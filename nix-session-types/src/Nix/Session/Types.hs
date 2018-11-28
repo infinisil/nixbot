@@ -9,27 +9,20 @@ import           Data.SafeCopy
 
 import           Data.IntMap   (IntMap)
 import           Data.Map      (Map)
+import           Data.Set      (Set)
 import           Data.Text     (Text)
 import           GHC.Generics  (Generic)
 
 -- So we don't need to depend on hnix
 type VarName = Text
 
-data SessionConfig = SessionConfig
-  { _selfName  :: Text
-  , _metaName  :: Text
-  , _fixedDefs :: Map Text Text
-  } deriving (Show, Generic)
 
 data GlobalConfig = GlobalConfig
   { _primarySessionFile    :: FilePath
   , _secondarySessionFiles :: Map Text FilePath
-  , _sessionDefaults       :: SessionConfig
   , _nixPath               :: Maybe [String]
   , _nixOptions            :: Map String String
   } deriving (Show, Generic)
-
-
 
 data Definition = Definition
   { _varname :: VarName -- ^ The variable name of this definition
@@ -42,6 +35,7 @@ data SessionState = SessionState
   { _defCount    :: Int -- ^ How many definitions have been issued
   , _definitions :: IntMap Definition -- ^ The definitions that have been issued and are still alive, reachable by a root
   , _roots       :: Map VarName Int -- ^ The definition roots, aka the definitions currently in scope
+  , _fixed       :: Set VarName -- ^ The set of definitions that can only be changed by admins
   } deriving (Show, Read)
 
 data Env = Env
@@ -53,16 +47,12 @@ data Env = Env
 
 -- | All data associated with a specific session, ultimately to be serialized to files for session persistence.
 data Session = Session
-  { _sessionFile   :: FilePath -- ^ The file this session is (to be) stored in
-  , _sessionState  :: SessionState -- ^ The state of the session, will change with new definitions issued
-  , _sessionConfig :: SessionConfig -- ^ The session config, changes infrequently and needs special handling to be changeable at all
+  { _sessionFile  :: FilePath -- ^ The file this session is (to be) stored in
+  , _sessionState :: SessionState -- ^ The state of the session, will change with new definitions issued
   } deriving (Show)
 
 
 lensOptions = defaultOptions { fieldLabelModifier = tail }
-
-instance FromJSON SessionConfig where
-  parseJSON = genericParseJSON lensOptions
 
 instance FromJSON GlobalConfig where
   parseJSON = genericParseJSON lensOptions
@@ -72,11 +62,9 @@ makeLenses ''Definition
 makeLenses ''SessionState
 makeLenses ''Env
 makeLenses ''Session
-makeLenses ''SessionConfig
 makeLenses ''GlobalConfig
 
 deriveSafeCopy 1 'base ''Definition
 deriveSafeCopy 1 'base ''SessionState
 deriveSafeCopy 1 'base ''Session
-deriveSafeCopy 1 'base ''SessionConfig
 

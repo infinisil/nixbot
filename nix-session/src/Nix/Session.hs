@@ -15,6 +15,7 @@ import           Data.IntMap                             (IntMap)
 import qualified Data.IntMap                             as IntMap
 import           Data.IntSet                             (IntSet)
 import qualified Data.IntSet                             as IntSet
+import           Data.List                               (intercalate)
 import           Data.List.NonEmpty                      (NonEmpty (..))
 import           Data.Map                                (Map)
 import qualified Data.Map                                as Map
@@ -45,8 +46,8 @@ import           System.Process                          hiding (Inherit)
 initEnv :: GlobalConfig -> IO (Either String Env)
 initEnv config = do
   nixExe <- maybe (Left "Couldn't find nix-instantiate executable") Right <$> findExecutable "nix-instantiate"
-  primary <- initSession (config^.sessionDefaults) (config^.primarySessionFile)
-  secondaries <- sequence <$> mapM (initSession (config^.sessionDefaults)) (config^.secondarySessionFiles)
+  primary <- initSession (config^.primarySessionFile)
+  secondaries <- sequence <$> mapM initSession (config^.secondarySessionFiles)
   return $ Env <$> nixExe <*> primary <*> secondaries <*> pure config
 
 saveEnv :: (MonadIO m, MonadState Env m) => m ()
@@ -57,14 +58,13 @@ saveEnv = do
   liftIO $ createDirectoryIfMissing True (dropFileName file)
   liftIO $ BS.writeFile file bs
 
-initSession :: SessionConfig -> FilePath -> IO (Either String Session)
-initSession defaultConfig path = do
+initSession :: FilePath -> IO (Either String Session)
+initSession path = do
   exists <- doesFileExist path
   if exists then runGet safeGet <$> BS.readFile path
   else return $ Right newSession
   where newSession = Session { _sessionFile = path
-                             , _sessionState = SessionState 0 IntMap.empty Map.empty
-                             , _sessionConfig = defaultConfig
+                             , _sessionState = SessionState 0 IntMap.empty Map.empty Set.empty
                              }
 
 increase :: MonadState SessionState m => Maybe Int -> m ()
@@ -105,27 +105,21 @@ genSuper frees = head . Prelude.filter (not . (`Set.member` frees)) $
 encodeEval :: Session -> Text -> Text
 encodeEval session expression = final
   where
-    self = session^.sessionConfig.selfName
-
     -- Wraps an expression e in
     -- ( e ).extends (self: super: { <var> = <val>; }) for a definition
     extend e def = "(" <> e <> ")\n\t\t" <>
-      ".extend (" <> self <> ": " <> super <> ": with " <> super <> "; { " <>
+      ".extend (self: " <> super <> ": with " <> super <> "; { " <>
       def^.varname <> " = " <> def^.expr <> "; })"
       where super = genSuper (Map.keysSet $ def^.depends)
 
     -- The initial expression for above wrapping
-    start = "\n\t\t(import <nixpkgs/lib>).makeExtensible (" <> self <> ": {})"
+    start = "\n\t\t(import <nixpkgs/lib>).makeExtensible (self: {})"
 
     -- Combine all definitions with above two functions
     chain = foldl extend start $ session^.sessionState.definitions
 
-    doFixed var val = var <> " = " <> val <> ";\n\t"
-    -- Transforms all fixed definitions into a line <var> = <val>; per definition
-    fixed = Text.concat . map (uncurry doFixed) <$> Map.assocs $ session^.sessionConfig.fixedDefs
-
-    final = "let\n\t" <> fixed <> self <> " = " <>
-      chain <> "; in with " <> self <> ";\n" <> expression
+    final = "let self = " <>
+      chain <> "; in with self;\n" <> expression
 
 
 -- | Evaluate an expression in
@@ -144,8 +138,6 @@ eval expr = do
 
 startState = SessionState 0 IntMap.empty Map.empty
 
-
-
 processText :: (MonadIO m, MonadState Env m) => Text -> m String
 processText line = do
   parsed <- runExceptT $ parseInput line
@@ -156,11 +148,17 @@ processText line = do
       case allAssigns definedVars . fmap (fmap stripAnnotation) $ bindings of
         Left err      -> return err
         Right assigns -> do
-          forM_ assigns $ \(var, expr) -> do
-            ss <- use (primarySession.sessionState)
-            let news = execState (trans var expr) ss
-            primarySession.sessionState .= news
-          return "Did assign\n"
+          fixd <- use $ primarySession.sessionState.fixed
+          let fixedDefs = fixd `Set.intersection` Set.fromList (map fst assigns)
+          case Set.size fixedDefs of
+            0 -> do
+              forM_ assigns $ \(var, expr) -> do
+                ss <- use (primarySession.sessionState)
+                let news = execState (trans var expr) ss
+                primarySession.sessionState .= news
+              return "Did assign\n"
+            1 -> return $ "Only admins can assign to fixed variable " ++ Text.unpack (Set.elemAt 0 fixedDefs) ++ "\n"
+            _ -> return $ "Only admins can assign to fixed variables " ++ intercalate ", " (map Text.unpack (Set.toList fixedDefs)) ++ "\n"
     Right (Nix (Evaluation expr)) ->
       get >>= runReaderT (eval (stripAnnotation expr))
     Right (Command (ViewDefinition var)) -> do
@@ -170,9 +168,21 @@ processText line = do
         Just exprnum -> do
           mexpr <- use $ primarySession.sessionState.definitions.ix exprnum.expr
           return . Text.unpack $ var <> " = " <> mexpr <> "\n"
-    Right (Command ViewConfig) -> do
-      config <- use $ primarySession.sessionConfig
-      return $ show config
+    Right (Command (FixDefinition var)) -> do
+      scope <- use $ primarySession.sessionState.roots
+      fixd <- use $ primarySession.sessionState.fixed
+      case (var `Map.member` scope, var `Set.member` fixd) of
+        (False, _) -> return "No such variable\n"
+        (True, False) -> do
+          primarySession.sessionState.fixed %= Set.insert var
+          return $ "Variable " ++ Text.unpack var ++ " is now fixed\n"
+        (True, True) -> return $ "Variable " ++ Text.unpack var ++ " is already fixed\n"
+    Right (Command (UnfixDefinition var)) -> do
+      fixd <- use $ primarySession.sessionState.fixed
+      if var `Set.member` fixd then do
+        primarySession.sessionState.fixed %= Set.delete var
+        return $ "Variable " ++ Text.unpack var ++ " now not fixed anymore\n"
+      else return $ "Variable " ++ Text.unpack var ++ " isn't fixed\n"
     Right _ -> return "Doing nothing\n"
   s <- use (primarySession . sessionState)
   return result
