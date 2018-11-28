@@ -8,7 +8,9 @@ import           Control.Lens                            hiding (uses)
 import           Control.Monad.Except
 import           Control.Monad.Reader
 import           Control.Monad.State
+import           Data.Aeson                              (decode')
 import qualified Data.ByteString                         as BS
+import qualified Data.ByteString.Lazy.Char8              as BSL
 import           Data.Fix
 import           Data.Foldable                           (traverse_)
 import           Data.IntMap                             (IntMap)
@@ -122,6 +124,20 @@ encodeEval session expression = final
       chain <> "; in with self;\n" <> expression
 
 
+attrNames :: (MonadIO m, MonadReader Env m) => NExpr -> m (Either String [Text])
+attrNames e = do
+  session <- view primarySession
+  let encoded = encodeEval session ("builtins.attrNames " <> Text.pack (printExpr e))
+
+  nixInstantiateExe <- liftIO $ fromJust <$> findExecutable "nix-instantiate"
+  let args = ["--eval", "--strict", "--json", "-E", Text.unpack encoded ]
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode nixInstantiateExe args ""
+  case exitCode of
+    ExitSuccess   -> case decode' $ BSL.pack stdout of
+      Nothing   -> return $ Left "Couldn't parse json output"
+      Just list -> return $ Right list
+    ExitFailure _ -> return $ Left stderr
+
 -- | Evaluate an expression in
 eval :: (MonadIO m, MonadReader Env m) => NExpr -> m String
 eval expr = do
@@ -183,6 +199,18 @@ processText line = do
         primarySession.sessionState.fixed %= Set.delete var
         return $ "Variable " ++ Text.unpack var ++ " now not fixed anymore\n"
       else return $ "Variable " ++ Text.unpack var ++ " isn't fixed\n"
+    Right (Command (Load e)) -> do
+      -- Evaluate `builtins.attrNames e`, assign keys with `inherit (e) key1 key2 ...;`
+      mnames <- get >>= runReaderT (attrNames e)
+      case mnames of
+        Left err    -> return err
+        Right names -> do
+          forM_ names $ \var -> do
+            ss <- use (primarySession.sessionState)
+            let x = Fix (NSelect e (StaticKey var :| []) Nothing)
+            let news = execState (trans var x) ss
+            primarySession.sessionState .= news
+          return "Loaded expression"
     Right _ -> return "Doing nothing\n"
   s <- use (primarySession . sessionState)
   return result

@@ -28,9 +28,10 @@ data Input = Nix NixAction
            | Nop
            deriving Show
 
-data Command = ViewDefinition Text
-             | FixDefinition Text
-             | UnfixDefinition Text
+data Command = ViewDefinition VarName
+             | FixDefinition VarName
+             | UnfixDefinition VarName
+             | Load NExpr
              deriving Show
 
 
@@ -54,6 +55,7 @@ commandParser :: Parser Command
 commandParser = ViewDefinition <$> fmap Text.pack (MC.string "v" *> MC.space1 *> many anySingle)
             <|> FixDefinition <$> fmap Text.pack (MC.string "fix" *> MC.space1 *> many anySingle)
             <|> UnfixDefinition <$> fmap Text.pack (MC.string "unfix" *> MC.space1 *> many anySingle)
+            <|> Load <$> fmap stripAnnotation (MC.string "load" *> MC.space1 *> nixToplevelForm)
 
 isAssignmentParser = whiteSpace *> ((nixSelector *> symbol "=") <|> symbol "inherit")
 
