@@ -45,8 +45,6 @@ in
       group = "users";
     };
 
-    environment.systemPackages = [ pkgs.nix-index ];
-
     systemd.timers.nixbot-master-updater = {
       wantedBy = [ "timers.target" ];
       timerConfig.OnUnitInactiveSec = 60;
@@ -75,6 +73,7 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
       requires = [ "nixbot-master-updater.service" ];
+      path = [ pkgs.nix-index ];
       serviceConfig = {
         User = "nixbot";
         ExecStart = "${nixbot}/bin/nixbot ${cfg.configFile}";

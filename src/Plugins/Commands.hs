@@ -3,6 +3,7 @@
 module Plugins.Commands (commandsPlugin) where
 
 import           Control.Monad.IO.Class
+import           Data.Aeson
 import           Data.Bifunctor
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.Char
@@ -20,10 +21,9 @@ import qualified Data.Set                   as Set
 import qualified Data.Text                  as Text
 import           Data.Versions
 import           Plugins
+import           System.Directory           (findExecutable)
 import           System.Exit
 import           System.Process
-
-import           Data.Aeson
 import           Text.EditDistance          (defaultEditCosts,
                                              levenshteinDistance)
 import           Text.Read                  (readMaybe)
@@ -76,7 +76,8 @@ argsForMode Man arg =
 
 nixLocate' :: MonadIO m => LocateMode -> Bool -> String -> m (Either String [String])
 nixLocate' mode whole file = do
-  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode "/run/current-system/sw/bin/nix-locate"
+  locateBin <- liftIO $ fromMaybe (error "Couldn't find nix-locate executable") <$> findExecutable "nix-locate"
+  (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode locateBin
     ("--minimal":"--top-level":argsForMode mode file ++ [ "--whole-name" | whole ]) ""
   return $ case exitCode of
     ExitFailure code -> Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
