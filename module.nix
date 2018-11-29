@@ -40,6 +40,12 @@ in
 
     services.nixbot.config.nixPath' = [
       "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
+      "nixos-config=${pkgs.writeText "configuration.nix" ''
+        {
+          boot.loader.grub.device = "nodev";
+          fileSystems."/".device = "/dev/sda1";
+        }
+      ''}"
     ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") channels;
 
     users.users.nixbot = {
