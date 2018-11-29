@@ -18,7 +18,7 @@ karmaRegex = "([^[:space:]]+)\\+\\+"
 mods :: String -> [String] -> State (M.Map String Int) [(String, Bool)]
 mods = undefined
 
-blacklistedUsers = Set.fromList [ "c" ]
+blacklistedUsers = Set.fromList [ "c", "C" ]
 
 karmaPlugin :: Monad m => MyPlugin (M.Map String Int) m
 karmaPlugin = MyPlugin M.empty trans "karma"
