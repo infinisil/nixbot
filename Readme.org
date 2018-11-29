@@ -76,3 +76,19 @@ The ~locate~ command uses [[https://github.com/bennofs/nix-index/][nix-index]] t
      <paul> Hello!
     <{^_^}> paul: 2 hours, 52 minutes ago <infinisil> Remember to do the thing
 #+END_SRC
+
+
+*** PR linking
+
+When you link to a GitHub pull request (or post its number), the bot will post some info about it.
+
+#+BEGIN_SRC 
+<infinisil> #10000
+    <{^_^}> https://github.com/NixOS/nixpkgs/pull/10000 (by ts468, 3 years ago, merged): nixos networking: add vswitch option
+<infinisil> https://github.com/NixOS/nixpkgs/issues/50902
+    <{^_^}> #50902 (by endgame, 1 week ago, open): haskellPackages.postgresql-libpq fails to link on Darwin
+<infinisil> Infinisil/nixbot#4
+    <{^_^}> https://github.com/Infinisil/nixbot/issues/4 (by Infinisil, 5 weeks ago, open): Better nix output parser
+<infinisil> nix#1000
+    <{^_^}> https://github.com/NixOS/nix/pull/1000 (by shlevy, 2 years ago, closed): Allow throwing and catching arbitrary (string-coercible) values
+#+END_SRC
