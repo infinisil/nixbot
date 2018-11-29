@@ -1,0 +1,54 @@
+* Nixbot
+
+HIE: What do if I get an error about "package ... cannot be satisfied"?
+- Delete any .ghc.environment* files from using cabal new-build See https://github.com/haskell/haskell-ide-engine/issues/775
+- cabal update (cabal configure too maybe)
+
+
+** Todo
+
+- Detach nix repl from IRC part, into own package
+  - Implement the makeExtensible based nix repl approach
+  - Have different nix evaluation strategies (hnix or nix-instantiate). Maybe use this to check whether hnix works correctly
+  - Timeout nix evaluation
+- Add a standard nix library (like a pretty function and other useful things in relation to the bot)
+- Better state: ACID, database?, have migrations, undo?
+- Use NixOS module to set up initial state before the binary runs, and for the configuration
+- Better logging
+- Implement different frontends (amqp/IRC/pure)
+- Add tests
+- Better plugin interface
+- Add NUR
+- Add support for building stuff
+
+*** Done
+- Don't rely on stack and make my HIE work with cabal (maybe new-style commands)
+
+* Ideas
+
+** ~,~ should translate commands to nix expressions and evaluate them
+
+ben: ,foo -> pretty (eval foo { nick = "ben"; } [])
+ben: ,foo nick -> pretty (eval foo { nick = "ben"; } ["nick"])
+ben: ,foo nick paul -> pretty (eval foo { nick = "ben"; } ["nick" "paul"])
+
+But if invoked with ,foo and the result is a string, remove the quotes around it and do something about the other escapes (\n and co.). If the result isn't a string, try to pretty print the value
+
+eval f def args with default args def should do the following:
+- If f is a value:
+  - If f is an attrset, args isn't empty and the first argument is an attribute of f, do return eval f.${head args} (tail args)
+  - If f is an attrset, args isn't empty and the first argument isn't an attribute of f, but there are "similar" attributes, do a suggestion "Did you mean <>?"
+  - If f is a list, args isn't empty and the first argument can be converted to an int which is an index of the list, do return eval (elemAt (head args) f) (tail args)
+  - otherwise return f
+- If f is a function and takes an attrset:
+  - return eval (f <intersection of default args and used ones for f>) args
+- If f is a function but doesn't take an attrset
+  - Evaluate the function applied to all the arguments intercalated with a space
+  - If this result is still a function, return eval (f (head args)) (tail args)
+  - Else, return the result 
+
+
+
+,foo = bar -> (define) foo = "bar"
+,foo = x: bar -> (define) foo = "x: bar"
+> foo = x: "${x}" -> (define) foo = x: "${x}"
