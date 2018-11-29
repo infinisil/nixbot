@@ -84,6 +84,7 @@ nixEval contents eval = do
       { allowImportFromDerivation = Just False
       , restrictEval = Just True
       , sandbox = Just True
+      , showTrace = Just True
       }
     }
   return $ bimap (outputTransform . BS.unpack) (outputTransform . BS.unpack) res
