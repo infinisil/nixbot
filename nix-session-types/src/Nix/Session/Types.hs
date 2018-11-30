@@ -24,6 +24,8 @@ data GlobalConfig = GlobalConfig
   , _nixOptions            :: Map String String
   } deriving (Show, Generic)
 
+-- TODO: Remember whether a definition could be changeable by other variables, aka has self in freeVars or any of its dependencies are changeable
+-- TODO: Different format on disk vs in memory: No need to store _depends on disk, can be computed on startup (also to make sure the current nix version still works with it). Essentially go through all commands again. Maybe we just need to store an operation log then! To make it faster, cache the result, should be invalidated based on all impure inputs, such as the nix version
 data Definition = Definition
   { _varname :: VarName -- ^ The variable name of this definition
   , _expr    :: Text -- ^ The assigned Nix expression

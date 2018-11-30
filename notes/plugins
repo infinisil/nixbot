@@ -1,0 +1,14 @@
+Implement all plugins via nix:
+- Every plugin has a nix-session session. Operating on it uses it as the primarySession. E.g. karma: `infinisil = infinisil + 1;` for increasing it in Nix
+- Plugins can have read-only access to others data. E.g. the nix repl plugin can provide access to the karma counts `meta.sessions.karma.infinisil -> 1`
+- Should be implemented with STM for nixbot, but with file system locks for the nix-session binary
+
+
+More examples and stuff:
+- Commands: `,foo = Hello there` gets turned into `foo = "Hello there"`, can be accessed in nix repl with `meta.sessions.commands.foo`
+- The admin console can be the main nix repl, this is where all settings could be changed, e.g. `config.karma.blacklist.c = true`. Then the karma plugin could use Nix like `name: { assignment = if meta.sessions.admin.config.blacklist ? ${name} or false then [] else [(self: super: { ${name} = super.${name} + 1; }
+
+
+Wild ideas:
+- Provide a secondary (read-only) session for a GitHub API. So people can use `(meta.sessions.github.pull 12765).title`. Would require IFD probably
+- Allow the user to dynamically define their own plugins. Then a way to export such written plugins is needed.
