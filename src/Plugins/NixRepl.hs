@@ -45,7 +45,7 @@ parser =
   P.try cmdParser <|> P.try defParser <|> Evaluation <$> (C.space *> P.takeRest)
     where
       literal :: Parser String
-      literal = (:) <$> (C.letterChar <|> C.char '_') <*> P.many C.alphaNumChar
+      literal = (:) <$> (C.letterChar <|> C.char '_') <*> P.many (C.alphaNumChar <|> C.char '_' <|> C.char '-' <|> C.char '\'')
 
       cmdParser :: Parser Instruction
       cmdParser = do
