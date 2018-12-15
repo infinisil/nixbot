@@ -2,7 +2,9 @@
 {-# LANGUAGE RankNTypes       #-}
 module Plugins.Commands (commandsPlugin) where
 
+import           Control.Applicative        (liftA2)
 import           Control.Monad.IO.Class
+import           Control.Monad.State
 import           Data.Aeson
 import           Data.Bifunctor
 import qualified Data.ByteString.Lazy.Char8 as BS
@@ -20,16 +22,18 @@ import           Data.Set                   (Set)
 import qualified Data.Set                   as Set
 import qualified Data.Text                  as Text
 import           Data.Versions
+import           Data.Void
+import           NixEval
 import           Plugins
 import           System.Directory           (findExecutable)
 import           System.Exit
 import           System.Process
 import           Text.EditDistance          (defaultEditCosts,
                                              levenshteinDistance)
+import           Text.Megaparsec
+import           Text.Megaparsec.Char
+import           Text.Megaparsec.Char.Lexer (decimal)
 import           Text.Read                  (readMaybe)
-
-import           Control.Monad.State
-import           NixEval
 import           Utils
 
 data LookupResult = Empty | Exact String | Guess String String
@@ -74,75 +78,57 @@ argsForMode Man arg =
   , "/share/man/man[0-9]/" ++ arg ++ ".[0-9].gz"
   ]
 
-nixLocate' :: MonadIO m => LocateMode -> Bool -> String -> m (Either String [String])
+
+
+data NixLocateResult = NixLocateResult
+  { attrPath :: [String]
+  , size     :: Int
+  , fileType :: Char
+  , path     :: FilePath
+  } deriving Show
+
+type Parser = Parsec Void String
+
+nixLocateParser :: Parser [NixLocateResult]
+nixLocateParser = many line <* eof where
+  line :: Parser NixLocateResult
+  line = NixLocateResult
+    <$> (many (noneOf ". ") `sepBy` char '.' <?> "attribute path") <* space
+    <*> (toNum <$> decimal `sepBy` char ',' <?> "file size") <* char ' '
+    <*> (anySingleBut ' ' <?> "file type") <* char ' '
+    <*> (many (anySingleBut '\n') <?> "file path") <* newline
+
+  toNum :: [Int] -> Int
+  toNum = sum . zipWith (*) (iterate (*1000) 1) . reverse
+
+nixLocate' :: MonadIO m => LocateMode -> Bool -> String -> m (Either String [NixLocateResult])
 nixLocate' mode whole file = do
   locateBin <- liftIO $ fromMaybe (error "Couldn't find nix-locate executable") <$> findExecutable "nix-locate"
   (exitCode, stdout, stderr) <- liftIO $ readProcessWithExitCode locateBin
-    ("--minimal":"--top-level":argsForMode mode file ++ [ "--whole-name" | whole ]) ""
-  return $ case exitCode of
-    ExitFailure code -> Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
-    ExitSuccess -> Right $ lines stdout
+    ("--top-level":argsForMode mode file ++ [ "--whole-name" | whole ]) ""
+  case exitCode of
+    ExitFailure code -> return $ Left $ "nix-locate: Error(" ++ show code ++ "): " ++ show stderr ++ show stdout
+    ExitSuccess -> case parse nixLocateParser "nix-locate-output" stdout of
+      Left err  -> do
+        liftIO $ putStrLn stdout
+        liftIO $ parseTest nixLocateParser stdout
+        return $ Left $ "nix-locate output parsing error: " ++ show err
+      Right res -> return $ Right res
 
 nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [String])
 nixLocate mode file = do
   whole <- nixLocate' mode True file
-  all <- case whole of
+  fmap selectAttrs <$> case whole of
     Left error -> return $ Left error
     Right []   -> nixLocate' mode False file
     Right _    -> return whole
-  mapM refinePackageList all
 
-byBestNames :: [(String, String)] -> [String]
-byBestNames names = bestsStripped
-  where
-    pnames :: [(String, (String, String))]
-    pnames = map (\(attr, name) -> (attr, parseDrvName . init . tail $ name)) names
-    -- Map from package name to (Attribute, version)
-    nameMap :: Map String [(String, String)]
-    nameMap = foldr (\(attr, (pname, version)) -> M.insertWith (++) pname [(attr, version)]) M.empty pnames
-    chooseBestVersion :: [(String, String)] -> String
-    chooseBestVersion pairs = fst . last $ y
-      where
-        x = map (\(l, r) -> (l, rightToMaybe . versioning . Text.pack $ r)) pairs
-        y = sortBy (\(lattr, lvers) (rattr, rvers) ->
-                      compare (length rattr) (length lattr)
-                   ) x
-    bests = map chooseBestVersion $ M.elems nameMap
-    bestsStripped = map (stripSuffix ".out") bests
-
-splitAttrPath :: String -> [String]
-splitAttrPath path = map Text.unpack $ Text.split (=='.') (Text.pack path)
-
-refinePackageList :: MonadIO m => [String] -> m [String]
-refinePackageList packages = do
-  liftIO $ print $ "Called with " ++ show packages
-  let nixattrs = "[" ++ concatMap (\p -> "[" ++ concatMap (\a -> "\"" ++ a ++ "\"") (splitAttrPath p ++ ["name"]) ++ "]") packages ++ "]"
-  let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
-  let contents = "with import <nixpkgs> { config = { allowUnfree = true; allowBroken = true; allowUnsupportedSystem = true; }; }; map (path: lib.attrByPath path null pkgs) " ++ nixattrs
-  result <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
-    { mode = Json
-    , attributes = []
-    , nixPath = [ "nixpkgs=/var/lib/nixbot/state/nixpkgs" ]
-    }
-  case result of
-    Left error      -> return []
-    Right namesJson -> case decode namesJson :: Maybe [Maybe String] of
-      Nothing -> do
-        liftIO $ putStrLn "Can't decode input"
-        return []
-      Just names -> return $ sortBy (\a b -> compare (length a) (length b)) . byBestNames . mapMaybe sequence . zip packages $ names
+selectAttrs :: [NixLocateResult] -> [String]
+selectAttrs input = sortOn (liftA2 (,) length id) $ map (stripSuffix ".out" . intercalate "." . attrPath) input
 
 stripSuffix :: String -> String -> String
 stripSuffix suffix string = if isSuffixOf suffix string then
   take (length string - length suffix) string else string
-
-parseDrvName :: String -> (String, String)
-parseDrvName name = case splitIndex of
-  Nothing -> (name, "")
-  Just index -> let (left, right) = splitAt index name in
-    (left, tail right)
-  where
-    splitIndex = findIndex (uncurry (&&) . bimap (=='-') (not . isAlpha)) . zip name . tail $ name
 
 ircLimit :: String -> Bool
 ircLimit = (<456) . length
