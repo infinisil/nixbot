@@ -29,6 +29,7 @@ executable nixbot
                        Plugins.NixRepl
                        Plugins.Tell
                        Plugins.Unreg
+                       Types
                        NixEval
                        IRC
                        Paths_nixbot

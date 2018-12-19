@@ -1,15 +1,18 @@
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NamedFieldPuns        #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE RankNTypes                 #-}
 
 
 module Main where
 
 import           Config
+import           IRC
 import           Plugins
 import           Plugins.Commands
 import           Plugins.Karma
@@ -19,6 +22,7 @@ import           Plugins.Pr
 import           Plugins.Reply
 import           Plugins.Tell
 import           Plugins.Unreg
+import           Types
 
 import           Control.Concurrent              (forkIO)
 import           Control.Concurrent.STM          (TMVar, atomically,
@@ -67,11 +71,20 @@ import           Text.Read                       (readMaybe)
 import           Text.Regex.TDFA                 ((=~))
 
 
-data Input = Input
+data RInput = RInput
   { in_from   :: String
   , in_body   :: String
   , in_sender :: String
   } deriving (Show, Generic)
+
+toPluginInput :: RInput -> Input
+toPluginInput RInput { in_from, in_body, in_sender } = Input
+  { inputUser = in_sender
+  , inputMessage = in_body
+  , inputChannel = case in_from of
+      '#':channel -> Just channel
+      _           -> Nothing
+  }
 
 data Output = Output
   { out_target       :: String
@@ -79,7 +92,7 @@ data Output = Output
   , out_message_type :: String
   } deriving (Show, Generic)
 
-instance FromJSON Input where
+instance FromJSON RInput where
   parseJSON = genericParseJSON defaultOptions
     { fieldLabelModifier = \s -> fromMaybe s (stripPrefix "in_" s) }
 instance ToJSON Output where
@@ -95,32 +108,22 @@ exchange = A.newExchange
   , A.exchangeAutoDelete = False
   }
 
-data Env = Env
-  { config     :: Config
-  , connection :: A.Connection
-  }
-
 main = do
   hSetBuffering stdout LineBuffering
+
   config <- getConfig
-  runStdoutLoggingT $ runReaderT server config
+  conn <- A.openConnection'' (amqpOptions config)
+  chan <- A.openChannel conn
 
-writeDone :: TMVar () -> IO ()
-writeDone var = atomically $ putTMVar var ()
+  runReaderT (runStderrLoggingT start) $ Env config chan
 
-server :: (MonadError IOException m, MonadLogger m, MonadReader Config m, MonadIO m) => m ()
-server = do
-  opts <- reader amqpOptions
-  conn <- liftIO $ A.openConnection'' opts
-  config <- ask
-  runReaderT (catchError start onInterrupt) $ Env config conn
+  var <- liftIO newEmptyTMVarIO
+  A.addConnectionClosedHandler conn True $ atomically $ putTMVar var ()
+  atomically $ takeTMVar var
 
 start :: (MonadReader Env m, MonadLogger m, MonadIO m) => m ()
 start = do
-  logDebugN "Got connection"
-  conn <- reader connection
-  chan <- liftIO $ A.openChannel conn
-  logDebugN "Got channel"
+  chan <- reader amqpChannel
 
   (publishQueueName, _, _) <- liftIO $ A.declareQueue chan $ A.newQueue
     { A.queueName = "queue-publish"
@@ -146,19 +149,9 @@ start = do
 
   cfg <- reader config
   cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
-  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (onMessage cache cfg chan)
+  r <- ask
+  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> runReaderT (onMessage cache x) r)
   logDebugN $ "Started consumer with tag " <> pack (show tag)
-
-  var <- liftIO newEmptyTMVarIO
-  liftIO $ A.addConnectionClosedHandler conn True $ writeDone var
-  logDebugN "terminating if enter is pressed..."
-  liftIO . atomically $ takeTMVar var
-
-onInterrupt :: (MonadReader Env m, MonadLogger m, MonadIO m) => IOException -> m ()
-onInterrupt e = do
-  logInfoN $ "Interrupted, closing connection" <> Text.pack (show e)
-  conn <- reader connection
-  liftIO $ A.closeConnection conn
 
 publishMessage :: A.Channel -> Output -> IO (Maybe Int)
 publishMessage chan msg = do
@@ -171,25 +164,28 @@ publishMessage chan msg = do
   putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
   return intMb
 
-onMessage :: [Text] -> Config -> A.Channel -> (A.Message, A.Envelope) -> IO ()
-onMessage cache cfg chan (m, e) =
-  case decode $ A.msgBody m :: Maybe Input of
-    Nothing -> do
-      putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
-      A.ackEnv e
-    Just msg -> do
-      putStrLn $ "Valid message " ++ show msg
-      forkIO $ do
-        replyBodies <- reply cache cfg msg
-        putStrLn $ "got replies: " ++ concatMap show replyBodies
-        sequence_ $ flip fmap replyBodies (\b -> publishMessage chan (Output (in_from msg) b "privmsg"))
-      A.ackEnv e
+instance MonadIO m => IRCMonad (ReaderT Env m) where
+  privMsg user message = ReaderT $ \(Env _ chan) -> do
+    let output = encode $ Output user message "privmsg"
+    liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
+      { A.msgBody = output
+      , A.msgDeliveryMode = Just A.Persistent
+      }
+    return ()
+  chanMsg channel message = ReaderT $ \(Env _ chan) -> do
+    let output = encode $ Output ('#':channel) message "privmsg"
+    liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
+      { A.msgBody = output
+      , A.msgDeliveryMode = Just A.Persistent
+      }
+    return ()
 
-reply :: [Text] -> Config -> Input -> IO [String]
-reply cache cfg Input { in_from = channel, in_sender = nick, in_body = msg } = do
-  let chanPlugs = newPlugins cache channel
-  replies <- mapM (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (channel, nick, msg)) chanPlugs
-  return $ take 3 $ concat replies
+onMessage :: [Text] -> (A.Message, A.Envelope) -> ReaderT Env IO ()
+onMessage cache (m, e) = do
+  case decode $ A.msgBody m :: Maybe RInput of
+    Nothing -> liftIO $ putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
+    Just msg -> runPlugins plugins (toPluginInput msg)
+  liftIO $ A.ackEnv e
 
 prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]
 prPlug = prPlugin Settings
@@ -232,5 +228,24 @@ newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
 nixOS = "nixOS"
 testing = "Testing"
 global = "Global"
+
+
+
+
+examplePlugin :: Plugin
+examplePlugin = Plugin
+  { pluginName = "example"
+  , pluginCatcher = Consumed
+  , pluginHandler = \Input { inputChannel, inputUser } ->
+      case (inputChannel, inputUser) of
+        (Nothing, "infinisil") -> privMsg inputUser "I have received your message"
+        (Just "bottest", _) -> chanMsg "bottest" $ inputUser ++ ": I have received your message"
+        _ -> return ()
+  }
+
+plugins :: [Plugin]
+plugins =
+  [ examplePlugin
+  ]
 
 

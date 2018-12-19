@@ -1,18 +1,69 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes       #-}
 
 module Plugins where
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.State.Class
-
+import Types
 import           Data.Maybe                (fromMaybe)
 import           System.Directory
+import System.FilePath
 import           System.FilePath
 import qualified System.IO.Strict          as S
 import           Text.Read                 (readMaybe)
-
 import           Config
+import           IRC
+
+data Input = Input
+  { inputUser    :: User
+  , inputChannel :: Maybe Channel
+  , inputMessage :: Message
+  } deriving (Show)
+
+class Monad m => PluginMonad m where
+  getGlobalState :: m FilePath
+  getChannelState :: Channel -> m FilePath
+  getUserState :: User -> m FilePath
+  getChannelUserState :: Channel -> User -> m FilePath
+
+data HandlerResult p = Consumed p
+                     | PassedOn
+
+data Plugin = forall p . Plugin
+  { pluginName    :: String
+  , pluginCatcher :: Input -> HandlerResult p
+  , pluginHandler :: forall m . (IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
+  }
+
+newtype PluginT m a = PluginT { unPluginT :: ReaderT (FilePath, String) m a } deriving (Functor, Applicative, Monad, MonadIO)
+
+instance IRCMonad m => IRCMonad (PluginT m) where
+  privMsg user msg = PluginT $ ReaderT $ \_ -> privMsg user msg
+  chanMsg channel msg = PluginT $ ReaderT $ \_ -> chanMsg channel msg
+
+instance Monad m => PluginMonad (PluginT m) where
+  getGlobalState = PluginT $ ReaderT $ \(base, pluginName) ->
+    return $ base </> "global" </> pluginName
+  getChannelState channel = PluginT $ ReaderT $ \(base, pluginName) ->
+    return $ base </> "channel" </> channel </> pluginName
+  getUserState user = PluginT $ ReaderT $ \(base, pluginName) ->
+    return $ base </> "user" </> user </> pluginName
+  getChannelUserState channel user = PluginT $ ReaderT $ \(base, pluginName) ->
+    return $ base </> "channel-user" </> channel </> user </> pluginName
+
+runPlugins :: (MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m ()
+runPlugins [] _ = return ()
+runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
+  PassedOn -> runPlugins ps input
+  Consumed p -> do
+    stateBase <- asks (stateDir.config)
+    runReaderT (unPluginT (pluginHandler p)) (stateBase </> "new", pluginName)
 
 
 type PluginInput = (String, String, String)
@@ -42,14 +93,6 @@ fileBackend path = Backend
       liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
       liftIO . writeFile fullPath $ show s
   }
-
-examplePlugin :: Monad m => MyPlugin Int m
-examplePlugin = MyPlugin 0 trans "example"
-  where
-    trans input = do
-      value <- get
-      put $ value + 1
-      return [ "increased value by 1" ]
 
 runPlugin :: MonadLogger m => MyPlugin s m -> Backend s m -> PluginInput -> m [String]
 runPlugin (MyPlugin init trans name) (Backend load store) input = do

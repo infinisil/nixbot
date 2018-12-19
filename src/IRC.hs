@@ -1,5 +1,14 @@
 module IRC where
 
+type User = String
+type Channel = String
+type Message = String
+
+class Monad m => IRCMonad m where
+  privMsg :: User -> Message -> m ()
+  chanMsg :: Channel -> Message -> m ()
+
+
 lengthLimit = 456
 
 type Page = Int
