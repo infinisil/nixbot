@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.Pr (prPlugin, Settings(..), ParsedIssue(..), ParseType(..)) where
@@ -18,6 +19,7 @@ import           Text.Regex.TDFA
 
 import           Data.List
 import           Data.Time
+import           IRC
 import           Utils
 
 import qualified Data.Text                 as Text
@@ -109,7 +111,15 @@ prReplies settings@Settings { prFilter } input = do
   where
     filtered = filter prFilter . nubBy sameIssue . parseIssues settings $ input
 
-prPlugin :: (MonadLogger m, MonadIO m) => Settings -> MyPlugin () m
-prPlugin settings = MyPlugin () trans "pr"
-  where
-    trans (chan, nick, msg) = prReplies settings msg
+prPlugin :: Settings -> Plugin
+prPlugin settings = Plugin
+  { pluginName = "pr"
+  , pluginCatcher = \Input { inputChannel, inputMessage } -> case (inputChannel, filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage) of
+      (_, [])                -> PassedOn
+      (Just channel, result) -> Consumed (channel, result)
+  , pluginHandler = \(channel, result) -> do
+      manager <- liftIO $ newManager tlsManagerSettings
+      forM_ result $ fetchInfo manager settings >=> \case
+        Nothing -> return ()
+        Just msg -> chanMsg channel msg
+  }

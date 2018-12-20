@@ -217,12 +217,12 @@ traceUser Input { inputUser } = do
   when new $ liftIO $ putStrLn $ "Recorded new user: " ++ inputUser
 
 onMessage :: [Text] -> (A.Message, A.Envelope) -> ReaderT Env IO ()
-onMessage cache (m, e) = do
+onMessage cache (m, e) = runStderrLoggingT $ do
   case decode $ A.msgBody m :: Maybe RInput of
     Nothing -> liftIO $ putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
     Just msg -> do
       let input = toPluginInput msg
-      traceUser input
+      lift $ traceUser input
       handled <- runPlugins plugins input
       unless handled $ do
         cfg <- asks config
@@ -234,8 +234,8 @@ onMessage cache (m, e) = do
 
   liftIO $ A.ackEnv e
 
-prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]
-prPlug = prPlugin Settings
+prSettings :: Settings
+prSettings = Settings
   { defOwner = \case
       "home-manager" -> "rycee"
       "cachix" -> "cachix"
@@ -248,11 +248,10 @@ prPlug = prPlugin Settings
   , prFilter = \case
       ParsedIssue Hash "NixOS" "nixpkgs" number -> number >= 10
       _ -> True
-  } `onDomain` nixOS
+  }
 
 defaultPlugins cache =
-  [ prPlug
-  , replyPlugin `onDomain` nixOS
+  [ replyPlugin `onDomain` nixOS
   , commandsPlugin `onDomain` nixOS
   , nixreplPlugin `onDomain` "bottest"
   , nixpkgsPlugin cache `onDomain` "bottest"
@@ -265,7 +264,6 @@ newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
-                  , prPlug
                   , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
                   ]
 
@@ -301,6 +299,7 @@ plugins :: [Plugin]
 plugins =
   [ leakedPlugin
   , karmaPlugin
+  , prPlugin prSettings
   ]
 
 

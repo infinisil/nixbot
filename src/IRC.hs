@@ -1,5 +1,8 @@
 module IRC where
 
+import           Control.Monad.Logger
+import           Control.Monad.Trans
+
 type User = String
 type Channel = String
 type Message = String
@@ -8,6 +11,11 @@ class Monad m => IRCMonad m where
   privMsg :: User -> Message -> m ()
   chanMsg :: Channel -> Message -> m ()
   isKnown :: User -> m Bool
+
+instance IRCMonad m => IRCMonad (LoggingT m) where
+  privMsg user msg = lift $ privMsg user msg
+  chanMsg chan msg = lift $ chanMsg chan msg
+  isKnown user = lift $ isKnown user
 
 
 lengthLimit = 456

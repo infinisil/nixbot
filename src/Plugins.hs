@@ -38,15 +38,20 @@ data HandlerResult p = Consumed p
 data Plugin = forall p . Plugin
   { pluginName    :: String
   , pluginCatcher :: Input -> HandlerResult p
-  , pluginHandler :: forall m . (IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
+  , pluginHandler :: forall m . (MonadLogger m, IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
   }
 
 newtype PluginT m a = PluginT { unPluginT :: ReaderT (FilePath, String) m a } deriving (Functor, Applicative, Monad, MonadIO)
 
+instance MonadTrans PluginT where
+  lift = PluginT . ReaderT . const
+
+instance MonadLogger m => MonadLogger (PluginT m) where
+
 instance IRCMonad m => IRCMonad (PluginT m) where
-  privMsg user msg = PluginT $ ReaderT $ \_ -> privMsg user msg
-  chanMsg channel msg = PluginT $ ReaderT $ \_ -> chanMsg channel msg
-  isKnown user = PluginT $ ReaderT $ \_ -> isKnown user
+  privMsg user msg = lift $ privMsg user msg
+  chanMsg channel msg = lift $ chanMsg channel msg
+  isKnown user = lift $ isKnown user
 
 instance MonadIO m => PluginMonad (PluginT m) where
   getGlobalState = PluginT $ ReaderT $ \(base, pluginName) -> do
@@ -66,7 +71,7 @@ instance MonadIO m => PluginMonad (PluginT m) where
     liftIO $ createDirectoryIfMissing True dir
     return dir
 
-runPlugins :: (MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m Bool
+runPlugins :: (MonadLogger m, MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m Bool
 runPlugins [] _ = return False
 runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
   PassedOn -> runPlugins ps input
