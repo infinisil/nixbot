@@ -113,7 +113,7 @@ main = bracket setup tearDown start where
     conn <- A.openConnection'' (amqpOptions config)
     chan <- A.openChannel conn
 
-    let sharedStateFile = stateDir config </> "shared"
+    let sharedStateFile = stateDir config </> "new/shared"
     exists <- doesFileExist sharedStateFile
     sharedState <- if not exists then return (SharedState Set.empty) else do
       decodeFileStrict sharedStateFile >>= \case
@@ -127,10 +127,10 @@ main = bracket setup tearDown start where
     A.addConnectionClosedHandler conn True $ atomically $ putTMVar var ()
 
     return (Env config chan sharedStateVar, var)
+
   tearDown :: (Env, TMVar ()) -> IO ()
   tearDown (env, var) = do
-
-    let sharedStateFile = stateDir (config env) </> "shared"
+    let sharedStateFile = stateDir (config env) </> "new/shared"
     putStrLn "Shutting down, saving global state"
     finalSharedState <- atomically $ readTVar (sharedState env)
     encodeFile sharedStateFile finalSharedState
@@ -165,7 +165,10 @@ start (env, var) = flip runReaderT env $ runStderrLoggingT $ do
   cfg <- reader config
   cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
   r <- ask
-  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> runReaderT (onMessage cache x) r)
+  tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> do
+                                                       forkIO (runReaderT (onMessage cache x) r)
+                                                       return ()
+                                                   )
   logDebugN $ "Started consumer with tag " <> pack (show tag)
 
   liftIO $ atomically $ takeTMVar var
@@ -215,7 +218,15 @@ onMessage cache (m, e) = do
     Just msg -> do
       let input = toPluginInput msg
       traceUser input
-      runPlugins plugins input
+      handled <- runPlugins plugins input
+      unless handled $ do
+        cfg <- asks config
+        chan <- asks amqpChannel
+        replies <- take 3 . concat <$> mapM
+          (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (in_from msg, in_sender msg, in_body msg))
+            (newPlugins cache (in_from msg))
+        sequence_ $ flip fmap replies (\b -> liftIO $ publishMessage chan (Output (in_from msg) b "privmsg"))
+
   liftIO $ A.ackEnv e
 
 prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]
@@ -276,7 +287,7 @@ developFilter :: Plugin
 developFilter = Plugin
   { pluginName = "develop-filter"
   , pluginCatcher = \Input { inputChannel, inputUser } ->
-      if inputChannel == Just "bottest" || inputUser == "infinisil"
+      if inputChannel == Just "bottest" || inputChannel == Nothing && inputUser == "infinisil"
       then PassedOn else Consumed ()
   , pluginHandler = const (return ())
   }

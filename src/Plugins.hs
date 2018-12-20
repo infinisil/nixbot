@@ -66,13 +66,14 @@ instance MonadIO m => PluginMonad (PluginT m) where
     liftIO $ createDirectoryIfMissing True dir
     return dir
 
-runPlugins :: (MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m ()
-runPlugins [] _ = return ()
+runPlugins :: (MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m Bool
+runPlugins [] _ = return False
 runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
   PassedOn -> runPlugins ps input
   Consumed p -> do
     stateBase <- asks (stateDir.config)
     runReaderT (unPluginT (pluginHandler p)) (stateBase </> "new", pluginName)
+    return True
 
 
 type PluginInput = (String, String, String)
