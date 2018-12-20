@@ -25,10 +25,8 @@ import           Plugins.Unreg
 import           Types
 
 import           Control.Concurrent              (forkIO)
-import           Control.Concurrent.STM          (TMVar, atomically,
-                                                  newEmptyTMVarIO, newTMVarIO,
-                                                  putTMVar, takeTMVar)
-import           Control.Exception               (SomeException, handle)
+import           Control.Concurrent.STM
+import           Control.Exception
 import           Control.Exception.Base          (IOException)
 import           Control.Monad                   (foldM, mzero)
 import           Control.Monad.Error.Class
@@ -37,11 +35,7 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import qualified Control.Monad.State             as ST
 import           Control.Monad.State.Class
-import           Data.Aeson                      (FromJSON, ToJSON, Value (..),
-                                                  decode, defaultOptions,
-                                                  encode, genericParseJSON,
-                                                  genericToEncoding, parseJSON,
-                                                  toEncoding, (.:))
+import           Data.Aeson
 import           Data.Aeson.Types                (fieldLabelModifier)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import qualified Data.ByteString.Lazy.Char8      as BS
@@ -52,6 +46,8 @@ import qualified Data.Map                        as M
 import           Data.Maybe
 import           Data.Monoid                     ((<>))
 import           Data.Ord                        (comparing)
+import           Data.Set                        (Set)
+import qualified Data.Set                        as Set
 import           Data.Text                       (Text, pack, unpack)
 import qualified Data.Text                       as Text
 import qualified Data.Text.IO                    as TIO
@@ -108,21 +104,40 @@ exchange = A.newExchange
   , A.exchangeAutoDelete = False
   }
 
-main = do
-  hSetBuffering stdout LineBuffering
 
-  config <- getConfig
-  conn <- A.openConnection'' (amqpOptions config)
-  chan <- A.openChannel conn
+main = bracket setup tearDown start where
+  setup :: IO (Env, TMVar ())
+  setup = do
+    hSetBuffering stdout LineBuffering
+    config <- getConfig
+    conn <- A.openConnection'' (amqpOptions config)
+    chan <- A.openChannel conn
 
-  runReaderT (runStderrLoggingT start) $ Env config chan
+    let sharedStateFile = stateDir config </> "shared"
+    exists <- doesFileExist sharedStateFile
+    sharedState <- if not exists then return (SharedState Set.empty) else do
+      decodeFileStrict sharedStateFile >>= \case
+        Nothing -> do
+          putStrLn "Error decoding shared state file"
+          return $ SharedState Set.empty
+        Just result -> return result
+    sharedStateVar <- newTVarIO sharedState
 
-  var <- liftIO newEmptyTMVarIO
-  A.addConnectionClosedHandler conn True $ atomically $ putTMVar var ()
-  atomically $ takeTMVar var
+    var <- liftIO newEmptyTMVarIO
+    A.addConnectionClosedHandler conn True $ atomically $ putTMVar var ()
 
-start :: (MonadReader Env m, MonadLogger m, MonadIO m) => m ()
-start = do
+    return (Env config chan sharedStateVar, var)
+  tearDown :: (Env, TMVar ()) -> IO ()
+  tearDown (env, var) = do
+
+    let sharedStateFile = stateDir (config env) </> "shared"
+    putStrLn "Shutting down, saving global state"
+    finalSharedState <- atomically $ readTVar (sharedState env)
+    encodeFile sharedStateFile finalSharedState
+
+
+start :: (Env, TMVar ()) -> IO ()
+start (env, var) = flip runReaderT env $ runStderrLoggingT $ do
   chan <- reader amqpChannel
 
   (publishQueueName, _, _) <- liftIO $ A.declareQueue chan $ A.newQueue
@@ -153,6 +168,8 @@ start = do
   tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> runReaderT (onMessage cache x) r)
   logDebugN $ "Started consumer with tag " <> pack (show tag)
 
+  liftIO $ atomically $ takeTMVar var
+
 publishMessage :: A.Channel -> Output -> IO (Maybe Int)
 publishMessage chan msg = do
   putStrLn $ "Sending the message " <> show msg
@@ -165,26 +182,40 @@ publishMessage chan msg = do
   return intMb
 
 instance MonadIO m => IRCMonad (ReaderT Env m) where
-  privMsg user message = ReaderT $ \(Env _ chan) -> do
+  privMsg user message = ReaderT $ \(Env _ chan _) -> do
     let output = encode $ Output user message "privmsg"
     liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
-  chanMsg channel message = ReaderT $ \(Env _ chan) -> do
+  chanMsg channel message = ReaderT $ \(Env _ chan _) -> do
     let output = encode $ Output ('#':channel) message "privmsg"
     liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
+  isKnown user = ReaderT $ \(Env _ _ sharedState) ->
+    liftIO $ atomically $ Set.member user . knownUsers <$> readTVar sharedState
+
+traceUser :: Input -> ReaderT Env IO ()
+traceUser Input { inputUser } = do
+  var <- asks sharedState
+  new <- liftIO $ atomically $ do
+    state <- readTVar var
+    writeTVar var $ state { knownUsers = Set.insert inputUser (knownUsers state) }
+    return $ not $ Set.member inputUser $ knownUsers state
+  when new $ liftIO $ putStrLn $ "Recorded new user: " ++ inputUser
 
 onMessage :: [Text] -> (A.Message, A.Envelope) -> ReaderT Env IO ()
 onMessage cache (m, e) = do
   case decode $ A.msgBody m :: Maybe RInput of
     Nothing -> liftIO $ putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
-    Just msg -> runPlugins plugins (toPluginInput msg)
+    Just msg -> do
+      let input = toPluginInput msg
+      traceUser input
+      runPlugins plugins input
   liftIO $ A.ackEnv e
 
 prPlug :: (MonadReader Config m, MonadLogger m, MonadIO m) => PluginInput -> m [String]

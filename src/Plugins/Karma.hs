@@ -10,6 +10,7 @@ import           Plugins
 import           Control.Monad.State
 import           Data.Aeson
 import qualified Data.ByteString     as BS
+import           Data.Either
 import           Data.List           (intercalate, nub)
 import           Data.Map            (Map)
 import qualified Data.Map            as M
@@ -90,34 +91,41 @@ karmaPlugin = Plugin
           True -> do
             time <- liftIO getCurrentTime
 
-            results <- forM matches $ \receiver -> do
-              -- TODO: Only allow karma for users that have talked before
-              let selfKarma = receiver == inputUser
-              let entry = if selfKarma then SelfKarma
-                    { givenIn = channel
-                    , givenAt = time
-                    , karmaContext = inputMessage
-                    }
-                  else KarmaEntry
-                    { givenBy = inputUser
-                    , givenIn = channel
-                    , givenAt = time
-                    , karmaContext = inputMessage
-                    }
+            results <- forM matches $ \receiver ->
+              isKnown receiver >>= \case
+                False -> return $ Left receiver
+                True -> do
+                  -- TODO: Only allow karma for users that have talked before
+                  let selfKarma = receiver == inputUser
+                  let entry = if selfKarma then SelfKarma
+                        { givenIn = channel
+                        , givenAt = time
+                        , karmaContext = inputMessage
+                        }
+                      else KarmaEntry
+                        { givenBy = inputUser
+                        , givenIn = channel
+                        , givenAt = time
+                        , karmaContext = inputMessage
+                        }
 
-              receiverFile <- (</> "entries") <$> getUserState receiver
-              exists <- liftIO $ doesFileExist receiverFile
-              entries <- if not exists then return [] else do
-                liftIO (decodeFileStrict receiverFile) >>= \case
-                  Nothing -> do
-                    liftIO $ putStrLn "Couldn't decode karma file"
-                    return []
-                  Just entries -> return entries
-              let newEntries = entry : entries
-              liftIO $ encodeFile receiverFile newEntries
-              return $ receiver ++ "'s karma got "
-                ++ if selfKarma then "decreased" else "increased"
-                ++ " to " ++ show (countKarma newEntries)
+                  receiverFile <- (</> "entries") <$> getUserState receiver
+                  exists <- liftIO $ doesFileExist receiverFile
+                  entries <- if not exists then return [] else do
+                    liftIO (decodeFileStrict receiverFile) >>= \case
+                      Nothing -> do
+                        liftIO $ putStrLn "Couldn't decode karma file"
+                        return []
+                      Just entries -> return entries
+                  let newEntries = entry : entries
+                  liftIO $ encodeFile receiverFile newEntries
+                  return $ Right $ receiver ++ "'s karma got "
+                    ++ if selfKarma then "decreased" else "increased"
+                    ++ " to " ++ show (countKarma newEntries)
 
-            chanMsg channel $ intercalate ", " results
+            let (unknown, known) = partitionEithers results
+
+            chanMsg channel $ intercalate ", " known
+            --chanMsg channel $ "Can't give karma to " ++ intercalate ", " unknown ++ " because they haven't been sighted"
+            return ()
   }

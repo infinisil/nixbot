@@ -7,6 +7,7 @@ type Message = String
 class Monad m => IRCMonad m where
   privMsg :: User -> Message -> m ()
   chanMsg :: Channel -> Message -> m ()
+  isKnown :: User -> m Bool
 
 
 lengthLimit = 456

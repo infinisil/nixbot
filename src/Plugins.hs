@@ -46,6 +46,7 @@ newtype PluginT m a = PluginT { unPluginT :: ReaderT (FilePath, String) m a } de
 instance IRCMonad m => IRCMonad (PluginT m) where
   privMsg user msg = PluginT $ ReaderT $ \_ -> privMsg user msg
   chanMsg channel msg = PluginT $ ReaderT $ \_ -> chanMsg channel msg
+  isKnown user = PluginT $ ReaderT $ \_ -> isKnown user
 
 instance MonadIO m => PluginMonad (PluginT m) where
   getGlobalState = PluginT $ ReaderT $ \(base, pluginName) -> do
