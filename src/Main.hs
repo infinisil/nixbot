@@ -295,8 +295,7 @@ developFilter = Plugin
 
 plugins :: [Plugin]
 plugins =
-  [ developFilter
-  , leakedPlugin
+  [ leakedPlugin
   , karmaPlugin
   ]
 

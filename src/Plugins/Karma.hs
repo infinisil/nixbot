@@ -120,7 +120,7 @@ karmaPlugin = Plugin
                   let newEntries = entry : entries
                   liftIO $ encodeFile receiverFile newEntries
                   return $ Right $ receiver ++ "'s karma got "
-                    ++ if selfKarma then "decreased" else "increased"
+                    ++ (if selfKarma then "decreased" else "increased")
                     ++ " to " ++ show (countKarma newEntries)
 
             let (unknown, known) = partitionEithers results
