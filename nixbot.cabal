@@ -62,3 +62,4 @@ executable nixbot
                      , time
                      , optparse-applicative
                      , typed-process
+                     , unix

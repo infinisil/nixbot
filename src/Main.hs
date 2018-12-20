@@ -25,7 +25,7 @@ import           Plugins.Tell
 import           Plugins.Unreg
 import           Types
 
-import           Control.Concurrent              (forkIO)
+import           Control.Concurrent              (forkIO, myThreadId)
 import           Control.Concurrent.STM
 import           Control.Exception
 import           Control.Exception.Base          (IOException)
@@ -62,6 +62,7 @@ import           System.FilePath
 import           System.IO                       (BufferMode (..),
                                                   hSetBuffering, stdout)
 import qualified System.IO.Strict                as S
+import           System.Posix.Signals
 import           Text.EditDistance               (defaultEditCosts,
                                                   levenshteinDistance)
 import           Text.Read                       (readMaybe)
@@ -110,6 +111,9 @@ main = bracket setup tearDown start where
   setup :: IO (Env, TMVar ())
   setup = do
     hSetBuffering stdout LineBuffering
+    mainThread <- myThreadId
+    installHandler sigTERM (Catch (throwTo mainThread UserInterrupt)) Nothing
+
     config <- getConfig
     conn <- A.openConnection'' (amqpOptions config)
     chan <- A.openChannel conn
