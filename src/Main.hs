@@ -204,8 +204,7 @@ prPlug = prPlugin Settings
   } `onDomain` nixOS
 
 defaultPlugins cache =
-  [ karmaPlugin `onDomain` nixOS
-  , prPlug
+  [ prPlug
   , replyPlugin `onDomain` nixOS
   , commandsPlugin `onDomain` nixOS
   , nixreplPlugin `onDomain` "bottest"
@@ -218,7 +217,6 @@ newPlugins cache "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
 newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
-                  , karmaPlugin `onDomain` ("users/" ++ nick)
                   , nixreplPlugin `onDomain` ("users/" ++ nick)
                   , prPlug
                   , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
@@ -243,9 +241,19 @@ examplePlugin = Plugin
         _ -> return ()
   }
 
+developFilter :: Plugin
+developFilter = Plugin
+  { pluginName = "develop-filter"
+  , pluginCatcher = \Input { inputChannel, inputUser } ->
+      if inputChannel == Just "bottest" || inputUser == "infinisil"
+      then PassedOn else Consumed ()
+  , pluginHandler = const (return ())
+  }
+
 plugins :: [Plugin]
 plugins =
-  [ examplePlugin
+  [ developFilter
+  , karmaPlugin
   ]
 
 

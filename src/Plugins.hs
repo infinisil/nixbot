@@ -47,15 +47,23 @@ instance IRCMonad m => IRCMonad (PluginT m) where
   privMsg user msg = PluginT $ ReaderT $ \_ -> privMsg user msg
   chanMsg channel msg = PluginT $ ReaderT $ \_ -> chanMsg channel msg
 
-instance Monad m => PluginMonad (PluginT m) where
-  getGlobalState = PluginT $ ReaderT $ \(base, pluginName) ->
-    return $ base </> "global" </> pluginName
-  getChannelState channel = PluginT $ ReaderT $ \(base, pluginName) ->
-    return $ base </> "channel" </> channel </> pluginName
-  getUserState user = PluginT $ ReaderT $ \(base, pluginName) ->
-    return $ base </> "user" </> user </> pluginName
-  getChannelUserState channel user = PluginT $ ReaderT $ \(base, pluginName) ->
-    return $ base </> "channel-user" </> channel </> user </> pluginName
+instance MonadIO m => PluginMonad (PluginT m) where
+  getGlobalState = PluginT $ ReaderT $ \(base, pluginName) -> do
+    let dir = base </> "global" </> pluginName
+    liftIO $ createDirectoryIfMissing True dir
+    return dir
+  getChannelState channel = PluginT $ ReaderT $ \(base, pluginName) -> do
+    let dir = base </> "channel" </> channel </> pluginName
+    liftIO $ createDirectoryIfMissing True dir
+    return dir
+  getUserState user = PluginT $ ReaderT $ \(base, pluginName) -> do
+    let dir = base </> "user" </> user </> pluginName
+    liftIO $ createDirectoryIfMissing True dir
+    return dir
+  getChannelUserState channel user = PluginT $ ReaderT $ \(base, pluginName) -> do
+    let dir = base </> "channel-user" </> channel </> user </> pluginName
+    liftIO $ createDirectoryIfMissing True dir
+    return dir
 
 runPlugins :: (MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m ()
 runPlugins [] _ = return ()
