@@ -16,6 +16,7 @@ import           IRC
 import           Plugins
 import           Plugins.Commands
 import           Plugins.Karma
+import           Plugins.Leaked
 import           Plugins.Nixpkgs
 import           Plugins.NixRepl
 import           Plugins.Pr
@@ -295,6 +296,7 @@ developFilter = Plugin
 plugins :: [Plugin]
 plugins =
   [ developFilter
+  , leakedPlugin
   , karmaPlugin
   ]
 
