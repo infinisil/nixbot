@@ -174,7 +174,7 @@ nixreplPlugin = Plugin
   , pluginHandler = \(user, channel, instruction) -> do
       stateFile <- (</> "state") <$> case channel of
         Nothing   -> getUserState user
-        Just chan -> getChannelState chan
+        Just chan -> getGlobalState
       exists <- liftIO $ doesFileExist stateFile
       initialState <- case exists of
         False -> return $ NixState M.empty []
