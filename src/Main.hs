@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 
 module Main where
@@ -189,23 +191,46 @@ publishMessage chan msg = do
   putStrLn $ "Published Message" <> maybe "" (\s -> ", got sequence number " ++ show s) intMb
   return intMb
 
-instance MonadIO m => IRCMonad (ReaderT Env m) where
-  privMsg user message = ReaderT $ \(Env _ chan _) -> do
+newtype IRCT m a = IRCT { runIRCT :: A.Channel -> TVar SharedState -> m a } deriving (Functor)
+
+instance Applicative m => Applicative (IRCT m) where
+  pure a = IRCT $ \_ _ -> pure a
+  IRCT a <*> IRCT b = IRCT $ \chan state -> let af = a chan state; bf = b chan state in af <*> bf
+
+instance Monad m => Monad (IRCT m) where
+  IRCT a >>= f = IRCT $ \chan state -> let
+    af = a chan state
+    in af >>= (\y -> runIRCT (f y) chan state)
+
+instance MonadIO m => MonadIO (IRCT m) where
+  liftIO action = IRCT $ \_ _ -> liftIO action
+
+instance MonadTrans IRCT where
+  lift a = IRCT $ \_ _ -> a
+
+instance MonadLogger m => MonadLogger (IRCT m) where
+instance MonadReader r m => MonadReader r (IRCT m) where
+  ask = lift ask
+  local f a = IRCT $ \chan state -> local f $ runIRCT a chan state
+  reader = lift . reader
+
+instance MonadIO m => IRCMonad (IRCT m) where
+  privMsg user message = IRCT $ \chan _ -> do
     let output = encode $ Output user message "privmsg"
     liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
-  chanMsg channel message = ReaderT $ \(Env _ chan _) -> do
+  chanMsg channel message = IRCT $ \chan _ -> do
     let output = encode $ Output ('#':channel) message "privmsg"
     liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
-  isKnown user = ReaderT $ \(Env _ _ sharedState) ->
-    liftIO $ atomically $ Set.member user . knownUsers <$> readTVar sharedState
+  isKnown user = IRCT $ \_ state ->
+    liftIO $ atomically $ Set.member user . knownUsers <$> readTVar state
 
 traceUser :: Input -> ReaderT Env IO ()
 traceUser Input { inputUser } = do
@@ -223,7 +248,8 @@ onMessage cache (m, e) = runStderrLoggingT $ do
     Just msg -> do
       let input = toPluginInput msg
       lift $ traceUser input
-      handled <- runPlugins plugins input
+      env <- ask
+      handled <- runIRCT (runPlugins plugins input) (amqpChannel env) (sharedState env)
       unless handled $ do
         cfg <- asks config
         chan <- asks amqpChannel
@@ -253,7 +279,6 @@ prSettings = Settings
 defaultPlugins cache =
   [ replyPlugin `onDomain` nixOS
   , commandsPlugin `onDomain` nixOS
-  , nixreplPlugin `onDomain` "bottest"
   , nixpkgsPlugin cache `onDomain` "bottest"
   , tellPlugin `onDomain` nixOS
   ]
@@ -263,7 +288,6 @@ newPlugins cache "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
 newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
-                  , nixreplPlugin `onDomain` ("users/" ++ nick)
                   , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
                   ]
 
@@ -298,6 +322,7 @@ developFilter = Plugin
 plugins :: [Plugin]
 plugins =
   [ leakedPlugin
+  , nixreplPlugin
   , karmaPlugin
   , prPlugin prSettings
   ]

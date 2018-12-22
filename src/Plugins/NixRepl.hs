@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE NamedFieldPuns    #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Plugins.NixRepl (nixreplPlugin) where
@@ -12,13 +14,18 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.State.Class
+import           Data.Aeson
 import           Data.Bifunctor             (bimap)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.List
 import           Data.Maybe                 (fromMaybe, listToMaybe,
                                              maybeToList)
+import           Data.Text                  (pack)
+import           GHC.Generics
+import           IRC
 import           System.Directory
 import           System.Exit                (ExitCode (..))
+import           System.FilePath
 import           System.Process
 import qualified Text.Megaparsec            as P
 import qualified Text.Megaparsec.Char       as C
@@ -36,7 +43,10 @@ data Instruction = Definition String String
 data NixState = NixState
   { variables :: Map String String
   , scopes    :: [ String ]
-  } deriving (Show, Read)
+  } deriving (Show, Read, Generic)
+
+instance FromJSON NixState
+instance ToJSON NixState
 
 type Parser = P.Parsec () String
 
@@ -93,7 +103,6 @@ tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState 
 tryMod mod = do
   newState <- gets mod
   let contents = nixFile newState "null"
-  liftIO . putStrLn $ "Trying to modify nix state to:\n" ++ contents ++ "\n"
   result <- nixEval contents False
   case result of
     Right _ -> do
@@ -101,35 +110,34 @@ tryMod mod = do
       return Nothing
     Left error -> return $ Just error
 
-handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m (Maybe String)
+handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m (String)
 handle (Definition lit val) = do
   result <- tryMod (\s -> s { variables = M.insert lit val (variables s) })
   case result of
-    Nothing    -> return . Just $ lit ++ " defined"
-    Just error -> return $ Just error
+    Nothing    -> return $ lit ++ " defined"
+    Just error -> return error
 handle (Evaluation lit) = do
   state <- get
   let contents = nixFile state ("_show (\n" ++ lit ++ "\n)")
-  liftIO . putStrLn $ "Trying to evaluate " ++ lit ++ " in nix file: \n" ++ contents ++ "\n"
   result <- nixEval contents True
   case result of
-    Right value -> return $ Just value
-    Left error  -> return $ Just error
-handle (Command "l" []) = return $ Just ":l needs an argument"
+    Right value -> return value
+    Left error  -> return error
+handle (Command "l" []) = return ":l needs an argument"
 handle (Command "l" args) = do
   result <- tryMod (\s -> s { scopes = unwords args : scopes s } )
   case result of
-    Nothing    -> return $ Just "imported scope"
-    Just error -> return $ Just error
+    Nothing    -> return "imported scope"
+    Just error -> return error
 handle (Command "v" [var]) = do
   val <- gets $ M.findWithDefault (var ++ " is not defined") var . flip M.union defaultVariables . variables
-  return . Just $ var ++ " = " ++ val
+  return $ var ++ " = " ++ val
 handle (Command "v" _) = do
   vars <- gets $ M.keys . flip M.union defaultVariables . variables
-  return . Just $ "All bindings: " ++ unwords vars
+  return $ "All bindings: " ++ unwords vars
 handle (Command "s" _) = do
   scopes <- gets scopes
-  return . Just $ "All scopes: " ++ intercalate ", " scopes
+  return $ "All scopes: " ++ intercalate ", " scopes
 --handle (Command "d" [lit]) = do
 --  litDefined <- gets $ M.member lit . variables
 --  if litDefined
@@ -140,14 +148,14 @@ handle (Command "s" _) = do
 --handle (Command "d" _) = return $ Just ":d takes a single argument"
 handle (Command "r" []) = do
   modify (\s -> s { scopes = [] })
-  return $ Just "Scopes got reset"
+  return "Scopes got reset"
 --handle (Command "r" ["v"]) = do
 --  modify (\s -> s { variables = M.empty })
 --  return $ Just "Variables got reset"
 --handle (Command "r" _) = do
 --  put $ NixState M.empty []
 --  return $ Just "State got reset"
-handle (Command cmd _) = return . Just $ "Unknown command: " ++ cmd
+handle (Command cmd _) = return $ "Unknown command: " ++ cmd
 
 defaultVariables :: Map String String
 defaultVariables = M.fromList
@@ -156,11 +164,29 @@ defaultVariables = M.fromList
   , ("lib", "pkgs.lib")
   ]
 
-nixreplPlugin :: (MonadReader Config m, MonadIO m, MonadLogger m, Monad m) => MyPlugin NixState m
-nixreplPlugin = MyPlugin initialState trans "nixrepl"
-  where
-    initialState = NixState M.empty []
-    trans (chan, _, '>':' ':nixString) = case P.runParser parser "(input)" nixString of
-      Right instruction -> maybeToList <$> handle instruction
-      Left _            -> return []
-    trans _ = return []
+nixreplPlugin :: Plugin
+nixreplPlugin = Plugin
+  { pluginName = "nixrepl"
+  , pluginCatcher = \Input { inputUser, inputChannel, inputMessage } -> case inputMessage of
+      '>':' ':nixString -> case P.runParser parser "(input)" nixString of
+        Right instruction -> Consumed (inputUser, inputChannel, instruction)
+      _ -> PassedOn
+  , pluginHandler = \(user, channel, instruction) -> do
+      stateFile <- (</> "state") <$> case channel of
+        Nothing   -> getUserState user
+        Just chan -> getChannelState chan
+      exists <- liftIO $ doesFileExist stateFile
+      initialState <- case exists of
+        False -> return $ NixState M.empty []
+        True -> liftIO (decodeFileStrict stateFile) >>= \case
+          Just result -> return result
+          Nothing -> do
+            logErrorN $ "Failed to decode nix state at " <> pack stateFile
+            return $ NixState M.empty []
+
+      (result, newState) <- runStateT (handle instruction) initialState
+      case channel of
+        Nothing   -> privMsg user result
+        Just chan -> chanMsg chan result
+      liftIO $ encodeFile stateFile newState
+  }

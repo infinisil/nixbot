@@ -35,16 +35,30 @@ class Monad m => PluginMonad m where
 data HandlerResult p = Consumed p
                      | PassedOn
 
+-- TODO:
+-- Initialization
 data Plugin = forall p . Plugin
   { pluginName    :: String
   , pluginCatcher :: Input -> HandlerResult p
-  , pluginHandler :: forall m . (MonadLogger m, IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
+  , pluginHandler :: forall m . (MonadReader Config m, MonadLogger m, IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
   }
 
-newtype PluginT m a = PluginT { unPluginT :: ReaderT (FilePath, String) m a } deriving (Functor, Applicative, Monad, MonadIO)
+newtype PluginT m a = PluginT { unPluginT :: FilePath -> String -> m a } deriving (Functor)
+
+instance Applicative m => Applicative (PluginT m) where
+  pure a = PluginT $ \_ _ -> pure a
+  PluginT a <*> PluginT b = PluginT $ \base pluginName -> let af = a base pluginName; bf = b base pluginName in af <*> bf
+
+instance Monad m => Monad (PluginT m) where
+  PluginT a >>= f = PluginT $ \base pluginName -> let
+    af = a base pluginName
+    in af >>= (\y -> unPluginT (f y) base pluginName)
+
+instance MonadIO m => MonadIO (PluginT m) where
+  liftIO action = PluginT $ \_ _ -> liftIO action
 
 instance MonadTrans PluginT where
-  lift = PluginT . ReaderT . const
+  lift a = PluginT $ \_ _ -> a
 
 instance MonadLogger m => MonadLogger (PluginT m) where
 
@@ -52,32 +66,43 @@ instance IRCMonad m => IRCMonad (PluginT m) where
   privMsg user msg = lift $ privMsg user msg
   chanMsg channel msg = lift $ chanMsg channel msg
   isKnown user = lift $ isKnown user
+  
+instance IRCMonad m => IRCMonad (ReaderT r m) where
+  privMsg user msg = lift $ privMsg user msg
+  chanMsg channel msg = lift $ chanMsg channel msg
+  isKnown user = lift $ isKnown user
 
 instance MonadIO m => PluginMonad (PluginT m) where
-  getGlobalState = PluginT $ ReaderT $ \(base, pluginName) -> do
+  getGlobalState = PluginT $ \base pluginName -> do
     let dir = base </> "global" </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
-  getChannelState channel = PluginT $ ReaderT $ \(base, pluginName) -> do
+  getChannelState channel = PluginT $ \base pluginName -> do
     let dir = base </> "channel" </> channel </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
-  getUserState user = PluginT $ ReaderT $ \(base, pluginName) -> do
+  getUserState user = PluginT $ \base pluginName -> do
     let dir = base </> "user" </> user </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
-  getChannelUserState channel user = PluginT $ ReaderT $ \(base, pluginName) -> do
+  getChannelUserState channel user = PluginT $ \base pluginName -> do
     let dir = base </> "channel-user" </> channel </> user </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
+
+instance PluginMonad m => PluginMonad (ReaderT r m) where
+  getGlobalState = lift getGlobalState
+  getChannelState channel = lift $ getChannelState channel
+  getUserState user = lift $ getUserState user
+  getChannelUserState channel user = lift $ getChannelUserState channel user
 
 runPlugins :: (MonadLogger m, MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m Bool
 runPlugins [] _ = return False
 runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
   PassedOn -> runPlugins ps input
   Consumed p -> do
-    stateBase <- asks (stateDir.config)
-    runReaderT (unPluginT (pluginHandler p)) (stateBase </> "new", pluginName)
+    cfg <- asks config
+    unPluginT (runReaderT (pluginHandler p) cfg) (stateDir cfg </> "new") pluginName
     return True
 
 
