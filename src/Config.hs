@@ -9,17 +9,11 @@ module Config ( getConfig
 
 import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as BS
-import           Data.FileEmbed             (embedFile)
-import qualified Data.Map                   as M
-import           Data.Maybe
 import           Data.Text                  (Text)
 import           GHC.Generics               (Generic)
 import           Network.AMQP
-import           Paths_nixbot               (getDataFileName)
-import           System.Directory           (findExecutable, makeAbsolute)
-import           System.Environment         (getArgs)
-
 import           Options.Applicative
+import           System.Directory           (makeAbsolute)
 
 parser :: Parser FilePath
 parser = argument str

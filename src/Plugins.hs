@@ -10,11 +10,9 @@ module Plugins where
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Control.Monad.State.Class
 import Types
 import           Data.Maybe                (fromMaybe)
 import           System.Directory
-import System.FilePath
 import           System.FilePath
 import qualified System.IO.Strict          as S
 import           Text.Read                 (readMaybe)
@@ -66,11 +64,6 @@ instance MonadTrans PluginT where
 instance MonadLogger m => MonadLogger (PluginT m) where
 
 instance IRCMonad m => IRCMonad (PluginT m) where
-  privMsg user msg = lift $ privMsg user msg
-  chanMsg channel msg = lift $ chanMsg channel msg
-  isKnown user = lift $ isKnown user
-  
-instance IRCMonad m => IRCMonad (ReaderT r m) where
   privMsg user msg = lift $ privMsg user msg
   chanMsg channel msg = lift $ chanMsg channel msg
   isKnown user = lift $ isKnown user
@@ -148,9 +141,9 @@ fileBackend path = Backend
   }
 
 runPlugin :: MonadLogger m => MyPlugin s m -> Backend s m -> PluginInput -> m [String]
-runPlugin (MyPlugin init trans name) (Backend load store) input = do
-  state <- fromMaybe init <$> load
-  (results, newState) <- runStateT (trans input) state
+runPlugin (MyPlugin ini trans _) (Backend load store) input = do
+  st <- fromMaybe ini <$> load
+  (results, newState) <- runStateT (trans input) st
   store newState
   return results
 

@@ -27,49 +27,27 @@ import           Plugins.Tell
 import           Plugins.Unreg
 import           Types
 
-import           Control.Concurrent              (forkIO, myThreadId)
+import           Control.Concurrent     (forkIO, myThreadId)
 import           Control.Concurrent.STM
 import           Control.Exception
-import           Control.Exception.Base          (IOException)
-import           Control.Monad                   (foldM, mzero)
-import           Control.Monad.Error.Class
-import           Control.Monad.IO.Class          (MonadIO, liftIO)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Logger
 import           Control.Monad.Reader
-import qualified Control.Monad.State             as ST
-import           Control.Monad.State.Class
 import           Data.Aeson
-import           Data.Aeson.Types                (fieldLabelModifier)
-import           Data.ByteString.Lazy            (fromStrict, toStrict)
-import qualified Data.ByteString.Lazy.Char8      as BS
-import           Data.Data
-import           Data.Functor.Identity
-import           Data.List                       (sortBy, stripPrefix)
-import qualified Data.Map                        as M
+import           Data.Aeson.Types       (fieldLabelModifier)
+import           Data.List              (stripPrefix)
 import           Data.Maybe
-import           Data.Monoid                     ((<>))
-import           Data.Ord                        (comparing)
-import           Data.Set                        (Set)
-import qualified Data.Set                        as Set
-import           Data.Text                       (Text, pack, unpack)
-import qualified Data.Text                       as Text
-import qualified Data.Text.IO                    as TIO
-import           GHC.Generics                    (Generic)
-import qualified GitHub.Endpoints.Repos.Contents as R
-import qualified Network.AMQP                    as A
-import qualified Network.HTTP.Simple             as H
+import           Data.Monoid            ((<>))
+import qualified Data.Set               as Set
+import           Data.Text              (Text, pack)
+import qualified Data.Text              as Text
+import qualified Data.Text.IO           as TIO
+import           GHC.Generics           (Generic)
+import qualified Network.AMQP           as A
 import           System.Directory
-import           System.Environment              (getArgs)
 import           System.FilePath
-import           System.IO                       (BufferMode (..),
-                                                  hSetBuffering, stdout)
-import qualified System.IO.Strict                as S
+import           System.IO              (BufferMode (..), hSetBuffering, stdout)
 import           System.Posix.Signals
-import           Text.EditDistance               (defaultEditCosts,
-                                                  levenshteinDistance)
-import           Text.Read                       (readMaybe)
-import           Text.Regex.TDFA                 ((=~))
-
 
 data RInput = RInput
   { in_from   :: String
@@ -109,12 +87,13 @@ exchange = A.newExchange
   }
 
 
+main :: IO ()
 main = bracket setup tearDown start where
   setup :: IO (Env, TMVar ())
   setup = do
     hSetBuffering stdout LineBuffering
     mainThread <- myThreadId
-    installHandler sigTERM (Catch (throwTo mainThread UserInterrupt)) Nothing
+    _ <- installHandler sigTERM (Catch (throwTo mainThread UserInterrupt)) Nothing
 
     config <- getConfig
     conn <- A.openConnection'' (amqpOptions config)
@@ -122,7 +101,7 @@ main = bracket setup tearDown start where
 
     let sharedStateFile = stateDir config </> "new/shared"
     exists <- doesFileExist sharedStateFile
-    sharedState <- if not exists then return (SharedState Set.empty) else do
+    sharedState <- if not exists then return (SharedState Set.empty) else
       decodeFileStrict sharedStateFile >>= \case
         Nothing -> do
           putStrLn "Error decoding shared state file"
@@ -136,10 +115,10 @@ main = bracket setup tearDown start where
     return (Env config chan sharedStateVar, var)
 
   tearDown :: (Env, TMVar ()) -> IO ()
-  tearDown (env, var) = do
+  tearDown (env, _) = do
     let sharedStateFile = stateDir (config env) </> "new/shared"
     putStrLn "Shutting down, saving global state"
-    finalSharedState <- atomically $ readTVar (sharedState env)
+    finalSharedState <- readTVarIO (sharedState env)
     encodeFile sharedStateFile finalSharedState
 
 
@@ -169,11 +148,10 @@ start (env, var) = flip runReaderT env $ runStderrLoggingT $ do
   liftIO $ A.confirmSelect chan False
   logDebugN "disabled nowait"
 
-  cfg <- reader config
   cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
   r <- ask
   tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> do
-                                                       forkIO (runReaderT (onMessage cache x) r)
+                                                       _ <- forkIO (runReaderT (onMessage cache x) r)
                                                        return ()
                                                    )
   logDebugN $ "Started consumer with tag " <> pack (show tag)
@@ -195,12 +173,12 @@ newtype IRCT m a = IRCT { runIRCT :: A.Channel -> TVar SharedState -> m a } deri
 
 instance Applicative m => Applicative (IRCT m) where
   pure a = IRCT $ \_ _ -> pure a
-  IRCT a <*> IRCT b = IRCT $ \chan state -> let af = a chan state; bf = b chan state in af <*> bf
+  IRCT a <*> IRCT b = IRCT $ \chan st -> let af = a chan st; bf = b chan st in af <*> bf
 
 instance Monad m => Monad (IRCT m) where
-  IRCT a >>= f = IRCT $ \chan state -> let
-    af = a chan state
-    in af >>= (\y -> runIRCT (f y) chan state)
+  IRCT a >>= f = IRCT $ \chan st -> let
+    af = a chan st
+    in af >>= (\y -> runIRCT (f y) chan st)
 
 instance MonadIO m => MonadIO (IRCT m) where
   liftIO action = IRCT $ \_ _ -> liftIO action
@@ -211,34 +189,34 @@ instance MonadTrans IRCT where
 instance MonadLogger m => MonadLogger (IRCT m) where
 instance MonadReader r m => MonadReader r (IRCT m) where
   ask = lift ask
-  local f a = IRCT $ \chan state -> local f $ runIRCT a chan state
+  local f a = IRCT $ \chan st -> local f $ runIRCT a chan st
   reader = lift . reader
 
 instance MonadIO m => IRCMonad (IRCT m) where
   privMsg user message = IRCT $ \chan _ -> do
     let output = encode $ Output user message "privmsg"
-    liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
+    _ <- liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
   chanMsg channel message = IRCT $ \chan _ -> do
     let output = encode $ Output ('#':channel) message "privmsg"
-    liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
+    _ <- liftIO $ A.publishMsg chan "" "queue-publish" A.newMsg
       { A.msgBody = output
       , A.msgDeliveryMode = Just A.Persistent
       }
     return ()
-  isKnown user = IRCT $ \_ state ->
-    liftIO $ atomically $ Set.member user . knownUsers <$> readTVar state
+  isKnown user = IRCT $ \_ st ->
+    liftIO $ atomically $ Set.member user . knownUsers <$> readTVar st
 
 traceUser :: Input -> ReaderT Env IO ()
 traceUser Input { inputUser } = do
   var <- asks sharedState
   new <- liftIO $ atomically $ do
-    state <- readTVar var
-    writeTVar var $ state { knownUsers = Set.insert inputUser (knownUsers state) }
-    return $ not $ Set.member inputUser $ knownUsers state
+    s <- readTVar var
+    writeTVar var $ s { knownUsers = Set.insert inputUser (knownUsers s) }
+    return $ not $ Set.member inputUser $ knownUsers s
   when new $ liftIO $ putStrLn $ "Recorded new user: " ++ inputUser
 
 onMessage :: [Text] -> (A.Message, A.Envelope) -> ReaderT Env IO ()
@@ -276,6 +254,7 @@ prSettings = Settings
       _ -> True
   }
 
+defaultPlugins :: (MonadLogger m, MonadIO m, MonadReader Config m) => [Text] -> [RunnablePlugin m]
 defaultPlugins cache =
   [ replyPlugin `onDomain` nixOS
   , commandsPlugin `onDomain` nixOS
@@ -284,7 +263,7 @@ defaultPlugins cache =
   ]
 
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
-newPlugins cache "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
+newPlugins _ "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
 newPlugins cache ('#':_) = defaultPlugins cache
 newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   , replyPlugin `onDomain` ("users/" ++ nick)
@@ -292,8 +271,11 @@ newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
                   ]
 
 -- Domains
+nixOS :: String
 nixOS = "nixOS"
+testing :: String
 testing = "Testing"
+global :: String
 global = "Global"
 
 

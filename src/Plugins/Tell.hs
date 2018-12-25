@@ -6,10 +6,8 @@ import           Plugins
 
 import           Control.Monad.IO.Class
 import           Control.Monad.State
-import           Data.List
 import           Data.Map               (Map)
 import qualified Data.Map               as M
-import           Data.Maybe             (catMaybes)
 import           Data.Time
 
 import           Utils

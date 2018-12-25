@@ -7,38 +7,25 @@ module Plugins.Pr (prPlugin, Settings(..), ParsedIssue(..), ParseType(..)) where
 
 import           Plugins
 
-import           Control.Monad             (mzero)
-import           Control.Monad.IO.Class    (MonadIO, liftIO)
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Logger
 import           Control.Monad.Reader
-import           Data.Aeson
-import qualified Data.HashMap.Strict       as H
-import           Data.Maybe
-import           GHC.Generics              (Generic)
-import           Text.Regex.TDFA
-
 import           Data.List
+import qualified Data.Text              as Text
 import           Data.Time
-import           IRC
-import           Utils
-
-import qualified Data.Text                 as Text
-
-import           Network.HTTP.Client
-import           Network.HTTP.Client.TLS
-import           Network.HTTP.Types.Status
-
-import           GitHub                    hiding (Owner, Repo)
+import           GitHub                 hiding (Owner, Repo)
 import           GitHub.Data.Id
 import           GitHub.Data.Name
+import           Text.Regex.TDFA
+import           Utils
 
-fetchInfo :: (MonadLogger m, MonadIO m) => Manager -> Settings -> ParsedIssue -> m (Maybe String)
-fetchInfo manager settings@Settings { defOwner, defRepo } pissue@(ParsedIssue parseType owner repo number) = do
+fetchInfo :: (MonadLogger m, MonadIO m) => Settings -> ParsedIssue -> m (Maybe String)
+fetchInfo Settings { defOwner, defRepo } (ParsedIssue parseType owner repo number) = do
   logInfoN $ "Fetching info for issue " <> Text.pack owner <> "/" <> Text.pack repo <> "#" <> Text.pack (show number)
   result <- liftIO . executeRequest' $ issueR owner' repo' number'
   case result of
-    Left error -> do
-      logWarnN $ "Got error from github request (might indicate that this issue doesn't exist): " <> Text.pack (show error)
+    Left err -> do
+      logWarnN $ "Got error from github request (might indicate that this issue doesn't exist): " <> Text.pack (show err)
       return Nothing
     Right issue@Issue { issueHtmlUrl = Nothing } -> do
       logWarnN $ "Issue didn't have an url for some reason: " <> Text.pack (show issue)
@@ -82,20 +69,21 @@ sameIssue (ParsedIssue _ owner1 repo1 num1) (ParsedIssue _ owner2 repo2 num2) =
   owner1 == owner2 && repo1 == repo2 && num1 == num2
 
 parseIssues :: Settings -> String -> [ParsedIssue]
-parseIssues Settings { defOwner, defRepo } = map extract . match prRegex
+parseIssues Settings { defOwner, defRepo } = map extractIssue . match prRegex
   where
     prRegex :: RegexMaker a CompOption ExecOption String => a
     prRegex = makeRegex $ "(([^ ()]+)/)?([^ ()]+)?#([[:digit:]]+)"
       ++ "|" ++ "https://github.com/([^/ ]+)/([^/ ]+)/(issues|pull)/([[:digit:]]+)([^#/[:digit:]]|\\')"
 
-    extract :: [String] -> ParsedIssue
-    extract [full, _, _, _, "", owner, repo, _, numberStr, _] =
+    extractIssue :: [String] -> ParsedIssue
+    extractIssue [_, _, _, _, "", owner, repo, _, numberStr, _] =
       ParsedIssue Link owner repo (read numberStr)
-    extract [full, _, owner, repo, numberStr, _, _, _, _, _]
+    extractIssue [_, _, owner, repo, numberStr, _, _, _, _, _]
       | null repo = ParsedIssue Hash (defOwner defRepo) defRepo number
       | null owner = ParsedIssue Hash (defOwner repo) repo number
       | otherwise = ParsedIssue Hash owner repo number
       where number = read numberStr
+    extractIssue m = error $ "The pull request regex has a bug, the following part was matched but not caught by any patterns: " ++ head m
 
 data Settings = Settings
   { defOwner :: Repo -> Owner
@@ -104,22 +92,15 @@ data Settings = Settings
   }
 
 
-prReplies :: (MonadLogger m, MonadIO m) => Settings -> String -> m [String]
-prReplies settings@Settings { prFilter } input = do
-  manager <- liftIO $ newManager tlsManagerSettings
-  catMaybes <$> mapM (fetchInfo manager settings) filtered
-  where
-    filtered = filter prFilter . nubBy sameIssue . parseIssues settings $ input
 
 prPlugin :: Settings -> Plugin
 prPlugin settings = Plugin
   { pluginName = "pr"
-  , pluginCatcher = \Input { inputChannel, inputMessage } -> case (inputChannel, filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage) of
-      (_, [])                -> PassedOn
-      (Just channel, result) -> Consumed (channel, result)
-  , pluginHandler = \(channel, result) -> do
-      manager <- liftIO $ newManager tlsManagerSettings
-      forM_ result $ fetchInfo manager settings >=> \case
+  , pluginCatcher = \Input { inputMessage } -> case filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage of
+      []     -> PassedOn
+      result -> Consumed result
+  , pluginHandler = \result ->
+      forM_ result $ fetchInfo settings >=> \case
         Nothing -> return ()
-        Just msg -> chanMsg channel msg
+        Just msg -> reply msg
   }

@@ -9,14 +9,8 @@ import           Plugins
 
 import           Control.Monad.State
 import           Data.Aeson
-import qualified Data.ByteString     as BS
 import           Data.Either
 import           Data.List           (intercalate, nub)
-import           Data.Map            (Map)
-import qualified Data.Map            as M
-import           Data.Maybe          (catMaybes, listToMaybe)
-import           Data.Set            (Set)
-import qualified Data.Set            as Set
 import           Data.Time
 import           GHC.Generics
 import           IRC
@@ -27,8 +21,6 @@ import           Text.Regex.TDFA     ((=~))
 
 karmaRegex :: String
 karmaRegex = "([^[:space:]]+)\\+\\+"
-
-blacklistedUsers = Set.fromList [ "c", "C", "g", "avr-g" ]
 
 data KarmaEntry
   = KarmaEntry
@@ -61,7 +53,7 @@ rateLimited channel user = do
   time <- liftIO getCurrentTime
   let rateFile = giverDir </> "rate"
   exists <- liftIO (doesFileExist rateFile)
-  rates <- if not exists then return [] else do
+  rates <- if not exists then return [] else
     liftIO (decodeFileStrict rateFile) >>= \case
       Nothing                   -> do
         liftIO $ putStrLn "rates couldn't be decoded"
@@ -82,7 +74,7 @@ karmaPlugin = Plugin
       case fmap (!!1) (inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
         matches -> Consumed (input, nub matches)
-  , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, matches) -> do
+  , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, matches) ->
       case inputChannel of
         Nothing -> privMsg inputUser $ "As much as you love "
           ++ intercalate ", " matches ++ ", you can't give them karma here!"
@@ -111,7 +103,7 @@ karmaPlugin = Plugin
 
                   receiverFile <- (</> "entries") <$> getUserState receiver
                   exists <- liftIO $ doesFileExist receiverFile
-                  entries <- if not exists then return [] else do
+                  entries <- if not exists then return [] else
                     liftIO (decodeFileStrict receiverFile) >>= \case
                       Nothing -> do
                         liftIO $ putStrLn "Couldn't decode karma file"
@@ -123,7 +115,7 @@ karmaPlugin = Plugin
                     ++ (if selfKarma then "decreased" else "increased")
                     ++ " to " ++ show (countKarma newEntries)
 
-            let (unknown, known) = partitionEithers results
+            let (_, known) = partitionEithers results
 
             chanMsg channel $ intercalate ", " known
             --chanMsg channel $ "Can't give karma to " ++ intercalate ", " unknown ++ " because they haven't been sighted"

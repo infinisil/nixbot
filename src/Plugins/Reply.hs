@@ -10,6 +10,7 @@ import qualified Data.Map               as Map
 import           Data.Time
 import           Plugins
 
+transform :: String -> String
 transform = map toLower . filter isAlpha
 
 replies :: [(String, [String])]
@@ -33,15 +34,13 @@ getReply msg = fst <$> find matches replies
 replyPlugin :: MonadIO m => MyPlugin (Map String UTCTime) m
 replyPlugin = MyPlugin Map.empty trans "reply"
   where
-    trans (chan, nick, msg) = case getReply msg of
+    trans (_, _, msg) = case getReply msg of
       Nothing -> return []
-      Just reply -> do
-        now <- liftIO $ getCurrentTime
-        mtime <- gets $ Map.lookup reply
+      Just repl -> do
+        now <- liftIO getCurrentTime
+        mtime <- gets $ Map.lookup repl
         let sayit = maybe True (\time -> now `diffUTCTime` time > 60 * 5) mtime
         if sayit then do
-          modify $ Map.insert reply now
-          return [ reply ]
+          modify $ Map.insert repl now
+          return [ repl ]
         else return []
-
-    trans _                      = return []

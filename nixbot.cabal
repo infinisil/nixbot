@@ -18,6 +18,7 @@ executable nixbot
   hs-source-dirs:      src
   main-is:             Main.hs
   default-language:    Haskell2010
+  ghc-options:         -Wall
   other-modules:       Config
                        Utils
                        Plugins
@@ -26,6 +27,7 @@ executable nixbot
                        Plugins.Karma
                        Plugins.Nixpkgs
                        Plugins.Pr
+                       Plugins.Leaked
                        Plugins.NixRepl
                        Plugins.Tell
                        Plugins.Unreg

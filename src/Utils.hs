@@ -25,9 +25,9 @@ prettySeconds relevant seconds = intercalate ", " relevantStrings
 
 -- | Given a set of items, a mapping from a page number and a set of items to a page, and a page validity condition, return the resulting valid pages. Doesn't return all elements paged in case the page condition can't be met.
 paging :: [a] -> (Int -> [a] -> b) -> (b -> Bool) -> [b]
-paging xs f pred = getPages 0 xs
+paging xs f p = getPages 0 xs
   where
-    getPage n elems = mostMatching elems (\(a, b) -> (f n a, b)) (pred . fst)
+    getPage n elems = mostMatching elems (\(a, b) -> (f n a, b)) (p . fst)
     getPages _ [] = []
     getPages n elems = case getPage n elems of
       Nothing           -> []
@@ -36,12 +36,12 @@ paging xs f pred = getPages 0 xs
 
 -- | Returns the mapping of the largest list split for which the predicate still holds. The split will always be after the first element.
 mostMatching :: [a] -> (([a], [a]) -> b) -> (b -> Bool) -> Maybe b
-mostMatching xs f pred = beforeFirstFalse pred $ map (f . (`splitAt` xs)) [1..length xs]
+mostMatching xs f p = beforeFirstFalse p $ map (f . (`splitAt` xs)) [1..length xs]
 
 
 -- | Returns the first element for which the predicate returns True while returning False for the next element
 beforeFirstFalse :: (a -> Bool) -> [a] -> Maybe a
 beforeFirstFalse _ [] = Nothing
-beforeFirstFalse pred (x:xs)
-  | pred x = Just $ fromMaybe x (beforeFirstFalse pred xs)
+beforeFirstFalse p (x:xs)
+  | p x = Just $ fromMaybe x (beforeFirstFalse p xs)
   | otherwise = Nothing

@@ -23,4 +23,3 @@ leakedPlugin = Plugin
         ++ "possible if you don't want anybody to take over your account. `/msg nickserv help "
         ++ "set password` for more info."
   }
-  where

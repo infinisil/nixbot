@@ -10,21 +10,14 @@ module NixEval ( nixInstantiate
                ) where
 
 import           Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy as BS
 import           Data.Char
-import           Data.Default
 import           Data.Function        (on)
 import           Data.List
 import           Data.Map             (Map)
 import qualified Data.Map             as M
 import           Data.Maybe
-import           Data.Word
 import           System.Exit
-import           System.Process
 import qualified System.Process.Typed as TP
-import           Text.Megaparsec      as P
-import           Text.Megaparsec.Char as C
-import           Text.Read
 
 data NixOptions = NixOptions
   { cores                     :: Maybe Int
@@ -39,6 +32,7 @@ data NixOptions = NixOptions
   }
   deriving (Show)
 
+unsetNixOptions :: NixOptions
 unsetNixOptions = NixOptions
   { cores = Nothing
   , fsyncMetadata = Nothing
@@ -137,15 +131,6 @@ nixInstantiate nixInstPath opts = toEither <$> TP.readProcess (toProc nixInstPat
 
 data Command = Command [Int] Char deriving Show
 
-getNumbers :: String -> [Int]
-getNumbers str = getNum groups
-  where
-    groups = groupBy (\a b -> isNumber a && isNumber b) str
-    getNum :: [String] -> [Int]
-    getNum []           = []
-    getNum [num]        = [read num]
-    getNum (num:_:rest) = read num : getNum rest
-
 trans :: String -> [Either Command Char]
 trans ('\ESC':'[':rest) = case right of
   (c:r) -> Left (Command (getNumbers codes) c) : trans r
@@ -155,9 +140,9 @@ trans ('\ESC':'[':rest) = case right of
       \s -> not (s == ';' || generalCategory s == DecimalNumber)
     getNumbers = getNum . groups
     groups = groupBy ((&&) `on` isNumber)
-    getNum []           = []
-    getNum [num]        = [read num]
-    getNum (num:_:rest) = read num : getNum rest
+    getNum []              = []
+    getNum [num]           = [read num]
+    getNum (num:_:restnum) = read num : getNum restnum
 trans (c:rest)      = Right c : trans rest
 trans [] = []
 
@@ -191,13 +176,14 @@ toIRC (Command [] 'm')   = ""
 toIRC (Command ints 'm') = concatMap (\i -> M.findWithDefault "" i toIRCCodes) ints
 toIRC _                  = ""
 
+translateCodes :: Either Command Char -> String
 translateCodes (Left cmd)   = toIRC cmd
 translateCodes (Right char) = [char]
 
 limit :: Int -> [Either Command Char] -> [Either Command Char]
 limit 0 []                = []
 limit 0 _                 = fmap Right "..."
-limit n []                = []
+limit _ []                = []
 limit n (Left cmd:rest)   = Left cmd : limit n rest
 limit n (Right char:rest) = Right char : limit (n-1) rest
 

@@ -13,23 +13,17 @@ import           Control.Applicative        ((<|>))
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
-import           Control.Monad.State.Class
 import           Data.Aeson
 import           Data.Bifunctor             (bimap)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.List
-import           Data.Maybe                 (fromMaybe, listToMaybe,
-                                             maybeToList)
 import           Data.Text                  (pack)
 import           GHC.Generics
 import           IRC
 import           System.Directory
-import           System.Exit                (ExitCode (..))
 import           System.FilePath
-import           System.Process
 import qualified Text.Megaparsec            as P
 import qualified Text.Megaparsec.Char       as C
-import qualified Text.Megaparsec.Char.Lexer as L
 
 import           Data.Map                   (Map)
 import qualified Data.Map                   as M
@@ -60,7 +54,7 @@ parser =
       cmdParser :: Parser Instruction
       cmdParser = do
         C.space
-        C.char ':'
+        _ <- C.char ':'
         cmd <- literal
         args <- P.many (C.space *> P.some (P.anySingleBut ' '))
         C.space
@@ -71,14 +65,13 @@ parser =
         C.space
         lit <- literal
         C.space
-        C.char '='
+        _ <- C.char '='
         C.space
-        value <- P.takeRest
-        return $ Definition lit value
+        Definition lit <$> P.takeRest
 
 nixFile :: NixState -> String -> String
 nixFile NixState { variables, scopes } lit = "let\n"
-    ++ concatMap (\(lit, val) -> "\t" ++ lit ++ " = " ++ val ++ ";\n") (M.assocs (M.union variables defaultVariables))
+    ++ concatMap (\(l, val) -> "\t" ++ l ++ " = " ++ val ++ ";\n") (M.assocs (M.union variables defaultVariables))
     ++ "in \n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
@@ -100,35 +93,35 @@ nixEval contents eval = do
   return $ bimap (outputTransform . BS.unpack) (outputTransform . BS.unpack) res
 
 tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
-tryMod mod = do
-  newState <- gets mod
+tryMod modi = do
+  newState <- gets modi
   let contents = nixFile newState "null"
   result <- nixEval contents False
   case result of
     Right _ -> do
       put newState
       return Nothing
-    Left error -> return $ Just error
+    Left err -> return $ Just err
 
-handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m (String)
+handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m String
 handle (Definition lit val) = do
   result <- tryMod (\s -> s { variables = M.insert lit val (variables s) })
   case result of
-    Nothing    -> return $ lit ++ " defined"
-    Just error -> return error
+    Nothing  -> return $ lit ++ " defined"
+    Just err -> return err
 handle (Evaluation lit) = do
-  state <- get
-  let contents = nixFile state ("_show (\n" ++ lit ++ "\n)")
+  st <- get
+  let contents = nixFile st ("_show (\n" ++ lit ++ "\n)")
   result <- nixEval contents True
   case result of
     Right value -> return value
-    Left error  -> return error
+    Left err    -> return err
 handle (Command "l" []) = return ":l needs an argument"
 handle (Command "l" args) = do
   result <- tryMod (\s -> s { scopes = unwords args : scopes s } )
   case result of
-    Nothing    -> return "imported scope"
-    Just error -> return error
+    Nothing  -> return "imported scope"
+    Just err -> return err
 handle (Command "v" [var]) = do
   val <- gets $ M.findWithDefault (var ++ " is not defined") var . flip M.union defaultVariables . variables
   return $ var ++ " = " ++ val
@@ -170,15 +163,17 @@ nixreplPlugin = Plugin
   , pluginCatcher = \Input { inputUser, inputChannel, inputMessage } -> case inputMessage of
       '>':' ':nixString -> case P.runParser parser "(input)" nixString of
         Right instruction -> Consumed (inputUser, inputChannel, instruction)
+        Left _            -> PassedOn
       _ -> PassedOn
   , pluginHandler = \(user, channel, instruction) -> do
       stateFile <- (</> "state") <$> case channel of
-        Nothing   -> getUserState user
-        Just chan -> getGlobalState
+        Nothing -> getUserState user
+        Just _  -> getGlobalState
       exists <- liftIO $ doesFileExist stateFile
-      initialState <- case exists of
-        False -> return $ NixState M.empty []
-        True -> liftIO (decodeFileStrict stateFile) >>= \case
+      initialState <- if exists then
+        return $ NixState M.empty []
+      else
+        liftIO (decodeFileStrict stateFile) >>= \case
           Just result -> return result
           Nothing -> do
             logErrorN $ "Failed to decode nix state at " <> pack stateFile
