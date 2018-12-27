@@ -171,13 +171,13 @@ nixreplPlugin = Plugin
         Just _  -> getGlobalState
       exists <- liftIO $ doesFileExist stateFile
       initialState <- if exists then
-        return $ NixState M.empty []
-      else
         liftIO (decodeFileStrict stateFile) >>= \case
           Just result -> return result
           Nothing -> do
             logErrorN $ "Failed to decode nix state at " <> pack stateFile
             return $ NixState M.empty []
+      else
+        return $ NixState M.empty []
 
       (result, newState) <- runStateT (handle instruction) initialState
       case channel of
