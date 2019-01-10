@@ -28,10 +28,11 @@ opts = info (parser <**> helper)
    )
 
 data Config = Config
-  { user     :: Text
-  , password :: Text
-  , stateDir :: FilePath
-  , nixPath' :: [String]
+  { user           :: Text
+  , password       :: Text
+  , stateDir       :: FilePath
+  , nixPath'       :: [String]
+  , karmaBlacklist :: [String]
   } deriving (Show, Generic)
 
 instance FromJSON Config where

@@ -7,16 +7,18 @@ module Plugins.Karma (karmaPlugin) where
 
 import           Plugins
 
-import           Control.Monad.State
+import           Config
+import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Either
-import           Data.List           (intercalate, nub)
+import           Data.List            (intercalate)
+import qualified Data.Set             as Set
 import           Data.Time
 import           GHC.Generics
 import           IRC
 import           System.Directory
 import           System.FilePath
-import           Text.Regex.TDFA     ((=~))
+import           Text.Regex.TDFA      ((=~))
 
 
 karmaRegex :: String
@@ -67,14 +69,22 @@ rateLimited channel user = do
     return False
   else return True
 
+matchFilter :: MonadReader Config m => [String] -> m [String]
+matchFilter matches = do
+  blacklist <- Set.fromList <$> asks karmaBlacklist
+  let matchSet = Set.fromList matches
+      filtered = matchSet `Set.difference` blacklist
+  return $ Set.toList filtered
+
 karmaPlugin :: Plugin
 karmaPlugin = Plugin
   { pluginName = "karma"
   , pluginCatcher = \input@Input { inputMessage } ->
       case fmap (!!1) (inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
-        matches -> Consumed (input, nub matches)
-  , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, matches) ->
+        matches -> Consumed (input, matches)
+  , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, unfilteredMatches) -> do
+      matches <- matchFilter unfilteredMatches
       case inputChannel of
         Nothing -> privMsg inputUser $ "As much as you love "
           ++ intercalate ", " matches ++ ", you can't give them karma here!"

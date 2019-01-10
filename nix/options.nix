@@ -26,5 +26,10 @@ with lib;
       description = "NIX_PATH";
     };
 
+    karmaBlacklist = mkOption {
+      type = types.listOf types.str;
+      description = "Blacklisted karma receivers";
+    };
+
   };
 }
