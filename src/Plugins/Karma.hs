@@ -10,8 +10,8 @@ import           Plugins
 import           Config
 import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.Either
 import           Data.List            (intercalate)
+import           Data.Maybe
 import qualified Data.Set             as Set
 import           Data.Time
 import           GHC.Generics
@@ -24,6 +24,8 @@ import           Text.Regex.TDFA      ((=~))
 karmaRegex :: String
 karmaRegex = "([^[:space:]]+)\\+\\+"
 
+-- TODO: Use a single constructor with givenBy being a Maybe (or some iso of it)
+-- Needs to migrate the old data
 data KarmaEntry
   = KarmaEntry
   { givenBy      :: User
@@ -38,9 +40,9 @@ data KarmaEntry
   } deriving (Show, Generic)
 
 countKarma :: [KarmaEntry] -> Int
-countKarma []                   = 0
-countKarma (KarmaEntry {}:rest) = countKarma rest + 1
-countKarma (SelfKarma {}:rest)  = countKarma rest - 1
+countKarma entries = sum $ map value entries where
+  value KarmaEntry {} = 1
+  value SelfKarma {}  = -1
 
 instance FromJSON KarmaEntry
 instance ToJSON KarmaEntry
@@ -56,18 +58,16 @@ rateLimited channel user = do
   let rateFile = giverDir </> "rate"
   exists <- liftIO (doesFileExist rateFile)
   rates <- if not exists then return [] else
-    liftIO (decodeFileStrict rateFile) >>= \case
-      Nothing                   -> do
-        liftIO $ putStrLn "rates couldn't be decoded"
+    liftIO (eitherDecodeFileStrict rateFile) >>= \case
+      Left err                   -> do
+        liftIO $ putStrLn $ "rates couldn't be decoded: " ++ err
         return []
-      Just (times :: [UTCTime]) -> return times
+      Right (times :: [UTCTime]) -> return times
   let onlyRecent = takeWhile ((< snd maxKarmaPerTime) . diffUTCTime time) rates
   let tooMany = fst maxKarmaPerTime <= length onlyRecent
   liftIO $ encodeFile rateFile $ time : onlyRecent
-  if tooMany then do
-    chanMsg channel $ user ++ ": You've been giving a bit too much karma lately!"
-    return False
-  else return True
+  when tooMany $ chanMsg channel $ user ++ ": You've been giving a bit too much karma lately!"
+  return $ not tooMany
 
 matchFilter :: MonadReader Config m => [String] -> m [String]
 matchFilter matches = do
@@ -88,46 +88,40 @@ karmaPlugin = Plugin
       case inputChannel of
         Nothing -> privMsg inputUser $ "As much as you love "
           ++ intercalate ", " matches ++ ", you can't give them karma here!"
-        Just channel -> rateLimited channel inputUser >>= \case
-          False -> return ()
-          True -> do
-            time <- liftIO getCurrentTime
+        Just channel -> rateLimited channel inputUser >>= \limited -> unless limited $ do
+          time <- liftIO getCurrentTime
 
-            results <- forM matches $ \receiver ->
-              isKnown receiver >>= \case
-                False -> return $ Left receiver
-                True -> do
-                  -- TODO: Only allow karma for users that have talked before
-                  let selfKarma = receiver == inputUser
-                  let entry = if selfKarma then SelfKarma
-                        { givenIn = channel
-                        , givenAt = time
-                        , karmaContext = inputMessage
-                        }
-                      else KarmaEntry
-                        { givenBy = inputUser
-                        , givenIn = channel
-                        , givenAt = time
-                        , karmaContext = inputMessage
-                        }
+          results <- forM matches $ \receiver ->
+            isKnown receiver >>= \case
+              False -> return Nothing
+              True -> do
+                -- TODO: Only allow karma for users that have talked before
+                let selfKarma = receiver == inputUser
+                let entry = if selfKarma then SelfKarma
+                      { givenIn = channel
+                      , givenAt = time
+                      , karmaContext = inputMessage
+                      }
+                    else KarmaEntry
+                      { givenBy = inputUser
+                      , givenIn = channel
+                      , givenAt = time
+                      , karmaContext = inputMessage
+                      }
 
-                  receiverFile <- (</> "entries") <$> getUserState receiver
-                  exists <- liftIO $ doesFileExist receiverFile
-                  entries <- if not exists then return [] else
-                    liftIO (decodeFileStrict receiverFile) >>= \case
-                      Nothing -> do
-                        liftIO $ putStrLn "Couldn't decode karma file"
-                        return []
-                      Just entries -> return entries
-                  let newEntries = entry : entries
-                  liftIO $ encodeFile receiverFile newEntries
-                  return $ Right $ receiver ++ "'s karma got "
-                    ++ (if selfKarma then "decreased" else "increased")
-                    ++ " to " ++ show (countKarma newEntries)
+                receiverFile <- (</> "entries") <$> getUserState receiver
+                exists <- liftIO $ doesFileExist receiverFile
+                entries <- if not exists then return [] else
+                  liftIO (eitherDecodeFileStrict receiverFile) >>= \case
+                    Left err -> do
+                      liftIO $ putStrLn $ "Couldn't decode karma file: " ++ err
+                      return []
+                    Right entries -> return entries
+                let newEntries = entry : entries
+                liftIO $ encodeFile receiverFile newEntries
+                return $ Just $ receiver ++ "'s karma got "
+                  ++ (if selfKarma then "decreased" else "increased")
+                  ++ " to " ++ show (countKarma newEntries)
 
-            let (_, known) = partitionEithers results
-
-            chanMsg channel $ intercalate ", " known
-            --chanMsg channel $ "Can't give karma to " ++ intercalate ", " unknown ++ " because they haven't been sighted"
-            return ()
+          chanMsg channel $ intercalate ", " $ catMaybes results
   }
