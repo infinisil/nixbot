@@ -222,7 +222,8 @@ onMessage (m, e) = runStderrLoggingT $ do
       let input = toPluginInput msg
       lift $ traceUser input
       env <- ask
-      _ <- runIRCT (runPlugins plugins input) (amqpChannel env) (sharedState env)
+      ps <- plugins
+      _ <- runIRCT (runPlugins ps input) (amqpChannel env) (sharedState env)
       return ()
 
   liftIO $ A.ackEnv e
@@ -264,15 +265,19 @@ developFilter = Plugin
   , pluginHandler = const (return ())
   }
 
-plugins :: [Plugin]
-plugins =
-  [ leakedPlugin
-  , unregPlugin
-  , tellSnooper
-  , commandsPlugin'
-  , nixreplPlugin
-  , karmaPlugin
-  , prPlugin prSettings
-  ]
+plugins :: MonadReader Env m => m [Plugin]
+plugins = do
+  debug <- asks (debugMode . config)
+
+  return $ [ developFilter | debug ]
+    ++
+    [ leakedPlugin
+    , unregPlugin
+    , tellSnooper
+    , commandsPlugin'
+    , nixreplPlugin
+    , karmaPlugin
+    , prPlugin prSettings
+    ]
 
 

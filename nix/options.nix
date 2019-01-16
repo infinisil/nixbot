@@ -31,5 +31,11 @@ with lib;
       description = "Blacklisted karma receivers";
     };
 
+    debugMode = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Enable debug mode: Only accepts messages in #bottest";
+    };
+
   };
 }

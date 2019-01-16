@@ -33,6 +33,7 @@ data Config = Config
   , stateDir       :: FilePath
   , nixPath'       :: [String]
   , karmaBlacklist :: [String]
+  , debugMode      :: Bool
   } deriving (Show, Generic)
 
 instance FromJSON Config where
