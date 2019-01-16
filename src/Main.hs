@@ -257,7 +257,6 @@ prSettings = Settings
 defaultPlugins :: (MonadLogger m, MonadIO m, MonadReader Config m) => [Text] -> [RunnablePlugin m]
 defaultPlugins cache =
   [ replyPlugin `onDomain` nixOS
-  , commandsPlugin `onDomain` nixOS
   , nixpkgsPlugin cache `onDomain` "bottest"
   , tellPlugin `onDomain` nixOS
   ]
@@ -265,8 +264,8 @@ defaultPlugins cache =
 newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
 newPlugins _ "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
 newPlugins cache ('#':_) = defaultPlugins cache
-newPlugins cache nick = [ commandsPlugin `onDomain` ("users/" ++ nick)
-                  , replyPlugin `onDomain` ("users/" ++ nick)
+newPlugins cache nick =
+                  [ replyPlugin `onDomain` ("users/" ++ nick)
                   , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
                   ]
 
@@ -304,6 +303,7 @@ developFilter = Plugin
 plugins :: [Plugin]
 plugins =
   [ leakedPlugin
+  , commandsPlugin'
   , nixreplPlugin
   , karmaPlugin
   , prPlugin prSettings

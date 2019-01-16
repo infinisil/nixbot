@@ -1,11 +1,14 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase       #-}
-{-# LANGUAGE RankNTypes       #-}
-module Plugins.Commands (commandsPlugin) where
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+module Plugins.Commands (commandsPlugin') where
 
 import           Control.Applicative        (liftA2)
 import           Control.Monad.IO.Class
 import           Control.Monad.State
+import           Data.Aeson
 import           Data.List
 import           Data.Map                   (Map)
 import qualified Data.Map                   as M
@@ -13,8 +16,10 @@ import           Data.Maybe
 import           Data.Ord                   (comparing)
 import           Data.Void
 import           Plugins
-import           System.Directory           (findExecutable)
+import           System.Directory
 import           System.Exit
+import           System.FilePath
+import qualified System.IO.Strict           as SIO
 import           System.Process
 import           Text.EditDistance          (defaultEditCosts,
                                              levenshteinDistance)
@@ -24,27 +29,39 @@ import           Text.Megaparsec.Char.Lexer (decimal)
 import           Text.Read                  (readMaybe)
 import           Utils
 
-data LookupResult = Empty | Exact String | Guess String String
+data LookupResult = Empty | Exact | Guess String
 
-replyLookup :: String -> Maybe String -> LookupResult -> [String]
-replyLookup _ _ Empty = []
-replyLookup _ Nothing (Exact str) = [str]
-replyLookup _ (Just arg) (Exact str) = [arg ++ ": " ++ str]
-replyLookup nick Nothing (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", str]
-replyLookup nick (Just arg) (Guess key str) = [nick ++ ": Did you mean " ++ key ++ "?", arg ++ ": " ++ str]
+replyLookup :: (MonadIO m, PluginMonad m) => String -> Maybe String -> LookupResult -> m [String]
+replyLookup _ _ Empty = return []
+replyLookup cmd arg Exact = do
+  val <- unsafeQueryCommand cmd
+  return $ [ case arg of
 
-lookupCommand :: MonadState (M.Map String (Int, String)) m => String -> m LookupResult
-lookupCommand str = do
-  assos <- map (\(k, (_, v)) -> (levenshteinDistance defaultEditCosts str k, (k, v))) <$> gets M.assocs
-  let result = if null assos then Nothing else Just $ minimumBy (comparing fst) assos
-  case result of
-    Nothing -> return Empty
-    Just (0, (word, value)) -> do
-      modify $ M.adjust (\(uses, v) -> (uses + 1, v)) word
-      return $ Exact value
-    Just (dist, (word, value)) -> do
-      let isValid = fromIntegral dist / fromIntegral (length word) < (0.34 :: Float)
-      return $ if isValid then Guess word value else Empty
+               Nothing     -> ""
+               Just target -> target ++ ": "
+             ++ val
+           ]
+replyLookup _ arg (Guess cmd) = do
+  val <- unsafeQueryCommand cmd
+  nick <- getUser
+  return $ [ nick ++ ": Did you mean " ++ cmd ++ "?"
+           , case arg of
+               Nothing     -> ""
+               Just target -> target ++ ": "
+             ++ val
+           ]
+
+lookupCommand :: (MonadIO m, PluginMonad m) => String -> m LookupResult
+lookupCommand str = withStats (gets M.keys) >>= \case
+  Left _ -> return Empty
+  Right cmds -> return $ case result of
+    Nothing -> Empty
+    Just (0, _) -> Exact
+    Just (dist, word) ->
+      if fromIntegral dist / fromIntegral (length word) < (0.34 :: Float) then Guess word else Empty
+    where
+      assos = map (\k -> (levenshteinDistance defaultEditCosts str k, k)) cmds
+      result = if null assos then Nothing else Just $ minimumBy (comparing fst) assos
 
 data LocateMode = Generic
                 | Bin
@@ -133,7 +150,7 @@ doNixLocate locateMode arg = do
         present (shown, extra) = "Found in packages: " ++ intercalate ", " shown ++
           if null extra then "" else ", and " ++ show (length extra) ++ " more"
 
-fixed :: Map String (String -> [String] -> StateT St IO (Maybe String))
+fixed :: Map String (String -> [String] -> IO (Maybe String))
 fixed = M.fromList
   [ ("tell", const $ \_ -> return Nothing)
   , ("find", const $ \_ -> return Nothing)
@@ -147,12 +164,39 @@ fixed = M.fromList
     )
   ]
 
-listCommands :: MonadState St m => Maybe Int -> m String
-listCommands mpage = do
-  sorted <- gets $ fmap fst . sortBy (flip $ comparing snd) . M.assocs . M.map fst
-  let pages = paging sorted getPage ircLimit
-  return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " ++ show (length pages - 1)
+getStatFile :: PluginMonad m => m FilePath
+getStatFile = (</> "stats.json") <$> getGlobalState
 
+getCommandDir :: PluginMonad m => m FilePath
+getCommandDir = (</> "commands") <$> getGlobalState
+
+type Stats = Map String Int
+
+withStats :: (PluginMonad m, MonadIO m) => (StateT Stats m a) -> m (Either String a)
+withStats action = do
+  statFile <- getStatFile
+  exists <- liftIO $ doesFileExist statFile
+  stats <- if exists then liftIO (eitherDecodeFileStrict statFile) >>= \case
+      Left err -> do
+        liftIO $ putStrLn $ "Failed to decode command stat file " ++ statFile ++ ": " ++ err
+        return $ Left $ "error: Couldn't decode stat file " ++ statFile ++ ": " ++ err
+      Right st -> return $ Right st
+    else return $ Right M.empty
+  case stats of
+    Left err -> return $ Left err
+    Right st -> do
+      (res, newStats) <- runStateT action st
+      liftIO $ encodeFile statFile newStats
+      return $ Right res
+
+listCommands :: (MonadIO m, PluginMonad m) => Maybe Int -> m String
+listCommands mpage = do
+  res <- withStats $ do
+    stats <- get
+    let sorted = fmap fst . sortBy (flip $ comparing snd) . M.assocs $ stats
+        pages = paging sorted getPage ircLimit
+    return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " ++ show (length pages - 1)
+  return $ either id id res
   where
     special = M.keys fixed
     getPage 0 items = "Special commands: " ++ unwords special
@@ -160,39 +204,74 @@ listCommands mpage = do
     getPage n items = "Page " ++ show n ++ ": " ++ unwords items
     page = fromMaybe 0 mpage
 
+unsafeQueryCommand :: (MonadIO m, PluginMonad m) => String -> m String
+unsafeQueryCommand cmd = do
+  cmdDir <- getCommandDir
+  _ <- withStats $ modify $ M.insertWith (+) cmd 1
+  liftIO (SIO.readFile $ cmdDir </> cmd)
+
+setCommand :: (MonadIO m, PluginMonad m) => String -> String -> m String
+setCommand cmd val = case M.lookup cmd fixed of
+  Just _ -> return $ "Can't reassign fixed commands"
+  Nothing -> if not (validCmd cmd) then return "Invalid command key" else do
+    file <- (</> cmd) <$> getCommandDir
+    exists <- liftIO $ doesFileExist file
+
+    oldValue <- if exists then Just <$> liftIO (SIO.readFile file) else return Nothing
+    getCommandDir >>= liftIO . createDirectoryIfMissing True
+    liftIO $ writeFile file val
+
+    _ <- withStats $ modify $ M.insertWith const cmd 0
+    return $ case oldValue of
+      Just old -> cmd ++ " redefined, was defined as " ++ old
+      Nothing  -> cmd ++ " defined"
+
+validCmd :: String -> Bool
+validCmd str = str == takeFileName str && isValid str
+
+delCommand :: (MonadIO m, PluginMonad m) => String -> m String
+delCommand cmd = case M.lookup cmd fixed of
+  Just _ -> return $ "Can't undefine fixed commands"
+  Nothing -> do
+    file <- (</> cmd) <$> getCommandDir
+    exists <- liftIO $ doesFileExist file
+    if exists then do
+      val <- liftIO $ SIO.readFile file
+      liftIO $ removeFile file
+      _ <- withStats $ modify $ M.delete cmd
+      return $ "Undefined " ++ cmd ++ ", was defined as: " ++ val
+    else return $ cmd ++ " is already undefined"
+
+commandsPlugin' :: Plugin
+commandsPlugin' = Plugin
+  { pluginName = "commands"
+  , pluginCatcher = \Input { inputMessage } -> case inputMessage of
+      ',':command -> Consumed command
+      _           -> PassedOn
+  , pluginHandler = \command -> do
+      case words command of
+        [] -> listCommands >=> reply $ Nothing
+        cmd:rest -> case readMaybe cmd :: Maybe Int of
+          Just num -> listCommands >=> reply $ Just num
+          Nothing -> case M.lookup cmd fixed of
+            Just fun -> do
+              nick <- getUser
+              liftIO (fun nick rest) >>= \case
+                Nothing -> return ()
+                Just answer -> reply answer
+            Nothing -> case rest of
+              [] -> do
+                res <- lookupCommand cmd
+                replies <- replyLookup cmd Nothing res
+                mapM_ reply replies
+              "=":vals -> case length vals of
+                  0 -> delCommand >=> reply $ cmd
+                  _ -> setCommand cmd >=> reply $ unwords vals
+              args -> do
+                res <- lookupCommand cmd
+                replies <- replyLookup cmd (Just (unwords args)) res
+                mapM_ reply replies
 
 
-type St = Map String (Int, String)
-
-commandsPlugin :: MonadIO m => MyPlugin St m
-commandsPlugin = MyPlugin M.empty trans "commands"
-  where
-    trans (_, nick, ',':command) = case words command of
-      [] -> (:[]) <$> listCommands Nothing
-      cmd:rest -> case readMaybe cmd :: Maybe Int of
-        Just num -> (:[]) <$> listCommands (Just num)
-        Nothing -> case M.lookup cmd fixed of
-          Just fun -> do
-            cur <- get
-            (a, s) <- liftIO $ runStateT (fun nick rest) cur
-            put s
-            return $ maybeToList a
-          Nothing -> case rest of
-            [] -> replyLookup nick Nothing <$> lookupCommand cmd
-            "=":vals -> case length vals of
-                0 -> do
-                  mvalue <- gets $ M.lookup cmd
-                  case mvalue of
-                    Nothing -> return [ cmd ++ " is already undefined" ]
-                    Just (_, value) -> do
-                      modify (M.delete cmd)
-                      return [ "Undefined " ++ cmd ++ ", was defined as: " ++ value]
-                _ -> do
-                  old <- gets $ M.lookup cmd
-                  modify $ M.insertWith (\(_, new) (uses, _) -> (uses, new)) cmd (0, unwords vals)
-                  case old of
-                    Nothing -> return [ cmd ++ " defined" ]
-                    Just (_, val) -> return [ cmd ++ " redefined, was defined as: " ++ val ]
-            args -> replyLookup nick (Just (unwords args)) <$> lookupCommand cmd
-
-    trans (_, _, _) = return []
+      return ()
+  }
