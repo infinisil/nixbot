@@ -36,7 +36,10 @@ handleCommand (Tell tell)       = tellHandle tell
 handleCommand (Find find')      = findHandle find'
 handleCommand (Locate locate)   = locateHandle locate
 handleCommand (Dynamic dynamic) = dynamicHandle dynamic
-handleCommand (Listing _)       = reply "Listing currently unimplemented"
+handleCommand (Listing listing)       = do
+  let special = ["find", "tell", "locate"]
+  answer <- listCommands special listing
+  reply answer
 
 listingParser :: Parser (Maybe Int)
 listingParser = eof $> Nothing

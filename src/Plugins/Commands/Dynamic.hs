@@ -4,6 +4,7 @@ module Plugins.Commands.Dynamic
   ( Dynamic
   , dynamicParser
   , dynamicHandle
+  , listCommands
   ) where
 
 import           Control.Monad.State
@@ -12,8 +13,9 @@ import           Data.Functor
 import           Data.List
 import           Data.Map                (Map)
 import qualified Data.Map                as Map
+import           Data.Maybe
 import           Data.Ord
-import           IRC
+import           IRC                     hiding (paging)
 import           Plugins
 import           Plugins.Commands.Shared
 import           System.Directory
@@ -21,6 +23,7 @@ import           System.FilePath
 import qualified System.IO.Strict        as SIO
 import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
 import           Text.Megaparsec
+import           Utils
 
 type Key = String
 
@@ -109,8 +112,8 @@ lookupCommand str = withStats (gets Map.keys) >>= \case
       assos = map (\k -> (levenshteinDistance defaultEditCosts str k, k)) cmds
       result = if null assos then Nothing else Just $ minimumBy (comparing fst) assos
 
-{-listCommands :: (MonadIO m, PluginMonad m) => Maybe Int -> m String
-listCommands mpage = do
+listCommands :: (MonadIO m, PluginMonad m) => [String] -> Maybe Int -> m String
+listCommands special mpage = do
   res <- withStats $ do
     stats <- get
     let sorted = fmap fst . sortBy (flip $ comparing snd) . Map.assocs $ stats
@@ -118,12 +121,11 @@ listCommands mpage = do
     return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " ++ show (length pages - 1)
   return $ either id id res
   where
-    special = Map.keys fixed
     getPage 0 items = "Special commands: " ++ unwords special
       ++ " - Commands sorted by use count, page 0 (use ,<n> to view page <n>): " ++ unwords items
     getPage n items = "Page " ++ show n ++ ": " ++ unwords items
     page = fromMaybe 0 mpage
--}
+
 
 unsafeQueryCommand :: (MonadIO m, PluginMonad m) => String -> m String
 unsafeQueryCommand cmd = do
