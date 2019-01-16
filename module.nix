@@ -52,8 +52,9 @@ in
       description = "User for nixbot";
       home = "/var/lib/nixbot";
       createHome = true;
-      group = "users";
+      group = "nixbot";
     };
+    users.groups.nixbot = {};
 
     systemd.timers.nixbot-master-updater = {
       wantedBy = [ "timers.target" ];
@@ -127,6 +128,7 @@ in
       path = [ pkgs.nix-index ];
       serviceConfig = {
         User = "nixbot";
+        Group = "nixbot";
         ExecStart = "${nixbot}/bin/nixbot ${cfg.configFile}";
         Restart = "always";
         RestartSec = 1;
@@ -135,6 +137,16 @@ in
         WorkingDirectory = "/var/lib/nixbot/state/nixpkgs";
       };
     };
+
+    services.nginx = {
+      enable = true;
+      virtualHosts."nixbot.${config.networking.domain}" = {
+        root = "/var/lib/nixbot/state/new";
+        locations."/global/commands".extraConfig = "autoindex on;";
+      };
+    };
+
+    users.users.nginx.extraGroups = [ "nixbot" ];
 
   };
 }
