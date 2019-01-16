@@ -144,7 +144,8 @@ in
         root = "/var/lib/nixbot/state/new";
         locations."/global/commands/".extraConfig = ''
           autoindex on;
-          index you-cant-assign-this;
+          # https://stackoverflow.com/q/28166131/6605742
+          index "you cant assign this";
 
           location ~ /global/commands/commands/.+$ {
             add_header Access-Control-Allow-Origin "*";
