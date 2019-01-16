@@ -266,8 +266,7 @@ developFilter = Plugin
 
 plugins :: [Plugin]
 plugins =
-  [ developFilter
-  , leakedPlugin
+  [ leakedPlugin
   , unregPlugin
   , tellSnooper
   , commandsPlugin'
