@@ -23,7 +23,7 @@ instance IRCMonad m => IRCMonad (ReaderT r m) where
   isKnown user = lift $ isKnown user
 
 lengthLimit :: Int
-lengthLimit = 456
+lengthLimit = 454
 
 ircLimit :: String -> Bool
 ircLimit = (<lengthLimit) . length
