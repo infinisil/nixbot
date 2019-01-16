@@ -15,7 +15,7 @@ leakedPlugin :: Plugin
 leakedPlugin = Plugin
   { pluginName = "leaked"
   , pluginCatcher = \input -> case (regex `matchTest` inputMessage input, inputChannel input) of
-      (True, Just chan) -> Consumed (inputUser input, chan)
+      (True, Just chan) -> Catched False (inputUser input, chan)
       _                 -> PassedOn
   , pluginHandler = \(user, chan) ->
       privMsg user $ "You accidentally leaked your password in #" ++ chan ++ "! "

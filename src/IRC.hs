@@ -25,6 +25,9 @@ instance IRCMonad m => IRCMonad (ReaderT r m) where
 lengthLimit :: Int
 lengthLimit = 456
 
+ircLimit :: String -> Bool
+ircLimit = (<lengthLimit) . length
+
 type Page = Int
 
 paging :: [String] -> (Int -> String)

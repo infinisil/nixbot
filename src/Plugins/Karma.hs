@@ -82,7 +82,7 @@ karmaPlugin = Plugin
   , pluginCatcher = \input@Input { inputMessage } ->
       case fmap (!!1) (inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
-        matches -> Consumed (input, matches)
+        matches -> Catched True (input, matches)
   , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, unfilteredMatches) -> do
       matches <- matchFilter unfilteredMatches
       case inputChannel of

@@ -23,13 +23,15 @@ executable nixbot
                        Utils
                        Plugins
                        Plugins.Commands
-                       Plugins.Reply
                        Plugins.Karma
-                       Plugins.Nixpkgs
+                       Plugins.Commands.Find
+                       Plugins.Commands.Tell
+                       Plugins.Commands.Locate
+                       Plugins.Commands.Dynamic
+                       Plugins.Commands.Shared
                        Plugins.Pr
                        Plugins.Leaked
                        Plugins.NixRepl
-                       Plugins.Tell
                        Plugins.Unreg
                        Types
                        NixEval

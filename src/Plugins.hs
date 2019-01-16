@@ -9,13 +9,9 @@
 module Plugins where
 import           Control.Monad.Logger
 import           Control.Monad.Reader
-import           Control.Monad.State
 import Types
-import           Data.Maybe                (fromMaybe)
 import           System.Directory
 import           System.FilePath
-import qualified System.IO.Strict          as S
-import           Text.Read                 (readMaybe)
 import           Config
 import           IRC
 
@@ -33,7 +29,7 @@ class Monad m => PluginMonad m where
   getUser :: m User
   getChannel :: m (Maybe Channel)
 
-data HandlerResult p = Consumed p
+data HandlerResult p = Catched Bool p
                      | PassedOn
 
 -- TODO:
@@ -100,10 +96,10 @@ runPlugins :: (MonadLogger m, MonadReader Env m, MonadIO m, IRCMonad m) => [Plug
 runPlugins [] _ = return False
 runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
   PassedOn -> runPlugins ps input
-  Consumed p -> do
+  Catched absorbed p -> do
     cfg <- asks config
     unPluginT (runReaderT (pluginHandler p) cfg) (stateDir cfg </> "new", pluginName, input)
-    return True
+    if absorbed then return True else runPlugins ps input
 
 reply :: (IRCMonad m, PluginMonad m) => Message -> m ()
 reply msg = getChannel >>= \case
@@ -111,43 +107,3 @@ reply msg = getChannel >>= \case
     user <- getUser
     privMsg user msg
   Just chan -> chanMsg chan msg
-
-type PluginInput = (String, String, String)
-data MyPlugin s m = MyPlugin { initState :: s
-                             , transf    :: PluginInput -> StateT s m [String]
-                             , name      :: String
-                             }
-
-data Backend s m = Backend { load :: m (Maybe s), store :: s -> m () }
-
-fileBackend :: (Read s, MonadLogger m, Show s, MonadIO m, MonadReader Config m) => FilePath -> Backend s m
-fileBackend path = Backend
-  { load = do
-      statePath <- reader stateDir
-      let fullPath = statePath </> path
-
-      liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
-      fileExists <- liftIO $ doesFileExist fullPath
-      if not fileExists
-        then return Nothing
-        else do
-          contents <- liftIO $ S.readFile fullPath
-          return $ readMaybe contents
-  , store = \s -> do
-      statePath <- reader stateDir
-      let fullPath = statePath </> path
-      liftIO $ createDirectoryIfMissing True (takeDirectory fullPath)
-      liftIO . writeFile fullPath $ show s
-  }
-
-runPlugin :: MonadLogger m => MyPlugin s m -> Backend s m -> PluginInput -> m [String]
-runPlugin (MyPlugin ini trans _) (Backend load store) input = do
-  st <- fromMaybe ini <$> load
-  (results, newState) <- runStateT (trans input) st
-  store newState
-  return results
-
-type RunnablePlugin m = PluginInput -> m [String]
-
-onDomain :: (MonadLogger m, MonadIO m, MonadReader Config m, Read s, Show s) => MyPlugin s m -> String -> RunnablePlugin m
-onDomain plugin domain = runPlugin plugin (fileBackend (domain ++ "/" ++ name plugin))

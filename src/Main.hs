@@ -17,13 +17,11 @@ import           Config
 import           IRC
 import           Plugins
 import           Plugins.Commands
+import           Plugins.Commands.Tell
 import           Plugins.Karma
 import           Plugins.Leaked
-import           Plugins.Nixpkgs
 import           Plugins.NixRepl
 import           Plugins.Pr
-import           Plugins.Reply
-import           Plugins.Tell
 import           Plugins.Unreg
 import           Types
 
@@ -39,9 +37,7 @@ import           Data.List              (stripPrefix)
 import           Data.Maybe
 import           Data.Monoid            ((<>))
 import qualified Data.Set               as Set
-import           Data.Text              (Text, pack)
-import qualified Data.Text              as Text
-import qualified Data.Text.IO           as TIO
+import           Data.Text              (pack)
 import           GHC.Generics           (Generic)
 import qualified Network.AMQP           as A
 import           System.Directory
@@ -148,10 +144,9 @@ start (env, var) = flip runReaderT env $ runStderrLoggingT $ do
   liftIO $ A.confirmSelect chan False
   logDebugN "disabled nowait"
 
-  cache <- liftIO $ Text.lines <$> TIO.readFile "pathcache"
   r <- ask
   tag <- liftIO $ A.consumeMsgs chan myQueue A.Ack (\x -> do
-                                                       _ <- forkIO (runReaderT (onMessage cache x) r)
+                                                       _ <- forkIO (runReaderT (onMessage x) r)
                                                        return ()
                                                    )
   logDebugN $ "Started consumer with tag " <> pack (show tag)
@@ -219,22 +214,16 @@ traceUser Input { inputUser } = do
     return $ not $ Set.member inputUser $ knownUsers s
   when new $ liftIO $ putStrLn $ "Recorded new user: " ++ inputUser
 
-onMessage :: [Text] -> (A.Message, A.Envelope) -> ReaderT Env IO ()
-onMessage cache (m, e) = runStderrLoggingT $ do
+onMessage :: (A.Message, A.Envelope) -> ReaderT Env IO ()
+onMessage (m, e) = runStderrLoggingT $ do
   case decode $ A.msgBody m :: Maybe RInput of
     Nothing -> liftIO $ putStrLn $ "Message body invalid: " ++ show (A.msgBody m)
     Just msg -> do
       let input = toPluginInput msg
       lift $ traceUser input
       env <- ask
-      handled <- runIRCT (runPlugins plugins input) (amqpChannel env) (sharedState env)
-      unless handled $ do
-        cfg <- asks config
-        chan <- asks amqpChannel
-        replies <- take 3 . concat <$> mapM
-          (\p -> flip runReaderT cfg . runStdoutLoggingT $ p (in_from msg, in_sender msg, in_body msg))
-            (newPlugins cache (in_from msg))
-        sequence_ $ flip fmap replies (\b -> liftIO $ publishMessage chan (Output (in_from msg) b "privmsg"))
+      _ <- runIRCT (runPlugins plugins input) (amqpChannel env) (sharedState env)
+      return ()
 
   liftIO $ A.ackEnv e
 
@@ -254,36 +243,11 @@ prSettings = Settings
       _ -> True
   }
 
-defaultPlugins :: (MonadLogger m, MonadIO m, MonadReader Config m) => [Text] -> [RunnablePlugin m]
-defaultPlugins cache =
-  [ replyPlugin `onDomain` nixOS
-  , nixpkgsPlugin cache `onDomain` "bottest"
-  , tellPlugin `onDomain` nixOS
-  ]
-
-newPlugins :: (MonadLogger m, MonadReader Config m, MonadIO m) => [Text] -> String -> [ PluginInput -> m [String] ]
-newPlugins _ "#nixos-unregistered" = [ unregPlugin `onDomain` nixOS ]
-newPlugins cache ('#':_) = defaultPlugins cache
-newPlugins cache nick =
-                  [ replyPlugin `onDomain` ("users/" ++ nick)
-                  , nixpkgsPlugin cache `onDomain` ("users/" ++ nick)
-                  ]
-
--- Domains
-nixOS :: String
-nixOS = "nixOS"
-testing :: String
-testing = "Testing"
-global :: String
-global = "Global"
-
-
-
 
 examplePlugin :: Plugin
 examplePlugin = Plugin
   { pluginName = "example"
-  , pluginCatcher = Consumed
+  , pluginCatcher = Catched True
   , pluginHandler = \Input { inputChannel, inputUser } ->
       case (inputChannel, inputUser) of
         (Nothing, "infinisil") -> privMsg inputUser "I have received your message"
@@ -296,13 +260,16 @@ developFilter = Plugin
   { pluginName = "develop-filter"
   , pluginCatcher = \Input { inputChannel, inputUser } ->
       if inputChannel == Just "bottest" || inputChannel == Nothing && inputUser == "infinisil"
-      then PassedOn else Consumed ()
+      then PassedOn else Catched True ()
   , pluginHandler = const (return ())
   }
 
 plugins :: [Plugin]
 plugins =
-  [ leakedPlugin
+  [ developFilter
+  , leakedPlugin
+  , unregPlugin
+  , tellSnooper
   , commandsPlugin'
   , nixreplPlugin
   , karmaPlugin

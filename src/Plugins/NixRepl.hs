@@ -162,7 +162,7 @@ nixreplPlugin = Plugin
   { pluginName = "nixrepl"
   , pluginCatcher = \Input { inputUser, inputChannel, inputMessage } -> case inputMessage of
       '>':' ':nixString -> case P.runParser parser "(input)" nixString of
-        Right instruction -> Consumed (inputUser, inputChannel, instruction)
+        Right instruction -> Catched True (inputUser, inputChannel, instruction)
         Left _            -> PassedOn
       _ -> PassedOn
   , pluginHandler = \(user, channel, instruction) -> do

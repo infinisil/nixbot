@@ -98,7 +98,7 @@ prPlugin settings = Plugin
   { pluginName = "pr"
   , pluginCatcher = \Input { inputMessage } -> case filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage of
       []     -> PassedOn
-      result -> Consumed result
+      result -> Catched True result
   , pluginHandler = \result ->
       forM_ result $ fetchInfo settings >=> \case
         Nothing -> return ()
