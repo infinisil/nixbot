@@ -67,7 +67,7 @@ rateLimited channel user = do
   let tooMany = fst maxKarmaPerTime <= length onlyRecent
   liftIO $ encodeFile rateFile $ time : onlyRecent
   when tooMany $ chanMsg channel $ user ++ ": You've been giving a bit too much karma lately!"
-  return $ not tooMany
+  return tooMany
 
 matchFilter :: MonadReader Config m => [String] -> m [String]
 matchFilter matches = do
