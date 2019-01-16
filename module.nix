@@ -142,7 +142,20 @@ in
       enable = true;
       virtualHosts."nixbot.${config.networking.domain}" = {
         root = "/var/lib/nixbot/state/new";
-        locations."/global/commands".extraConfig = "autoindex on;";
+        locations."/global/commands/".extraConfig = ''
+          autoindex on;
+          index you-cant-assign-this;
+
+          location ~ /global/commands/commands/.+$ {
+            add_header Access-Control-Allow-Origin "*";
+            add_header Access-Control-Request-Method "GET";
+            add_header Content-Security-Policy "default-src 'none'; sandbox;";
+            add_header Content-Type "text/plain; charset=utf-8";
+            add_header X-Content-Type-Options "nosniff";
+            add_header X-Frame-Options "deny";
+            add_header X-XSS-Protection "1; mode=block";
+          }
+        '';
       };
     };
 

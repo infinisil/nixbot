@@ -228,6 +228,8 @@ setCommand cmd val = case M.lookup cmd fixed of
 
 validCmd :: String -> Bool
 validCmd str = str == takeFileName str && isValid str
+  -- https://stackoverflow.com/q/28166131/6605742
+  && str /= "you-cant-assign-this"
 
 delCommand :: (MonadIO m, PluginMonad m) => String -> m String
 delCommand cmd = case M.lookup cmd fixed of
