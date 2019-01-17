@@ -4,7 +4,7 @@ module Plugins.Commands.Locate
   , locateHandle
   ) where
 
-import           Control.Applicative        (liftA2)
+import           Control.Arrow              ((&&&))
 import           Control.Monad.IO.Class
 import           Data.Char
 import           Data.Functor
@@ -86,7 +86,7 @@ argsForMode Man arg =
   ]
 
 selectAttrs :: [NixLocateResult] -> [String]
-selectAttrs input = sortOn (liftA2 (,) length id) $ map (stripSuffix ".out" . intercalate "." . attrPath) input
+selectAttrs = sortOn (length &&& id) . nub . map (stripSuffix ".out" . intercalate "." . attrPath)
 
 nixLocateParser :: Parser [NixLocateResult]
 nixLocateParser = many line <* eof where
