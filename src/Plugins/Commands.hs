@@ -35,7 +35,12 @@ handleCommand :: (MonadIO m, PluginMonad m, IRCMonad m) => Command -> m ()
 handleCommand (Tell tell)       = tellHandle tell
 handleCommand (Find find')      = findHandle find'
 handleCommand (Locate locate)   = locateHandle locate
-handleCommand (Dynamic dynamic) = dynamicHandle dynamic
+handleCommand (Dynamic dynamic) = do
+  chan <- getChannel
+  case (chan, dynamic) of
+    (Just _, _)                 -> dynamicHandle dynamic
+    (Nothing, DynamicQuery _ _) -> dynamicHandle dynamic
+    _                           -> reply "Not allowed in PMs"
 handleCommand (Listing listing)       = do
   let special = ["find", "tell", "locate"]
   answer <- listCommands special listing

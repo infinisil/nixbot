@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
 module Plugins.Commands.Dynamic
-  ( Dynamic
+  ( Dynamic(..)
   , dynamicParser
   , dynamicHandle
   , listCommands
@@ -45,7 +45,6 @@ dynamicHandle (DynamicQuery key users) = do
   res <- lookupCommand key
   replies <- replyLookup key users res
   mapM_ reply replies
-  return ()
 dynamicHandle (DynamicAssign key value) = do
   answer <- setCommand key value
   reply answer
@@ -61,7 +60,7 @@ getCommandDir = (</> "commands") <$> getGlobalState
 
 type Stats = Map String Int
 
-withStats :: (PluginMonad m, MonadIO m) => (StateT Stats m a) -> m (Either String a)
+withStats :: (PluginMonad m, MonadIO m) => StateT Stats m a -> m (Either String a)
 withStats action = do
   statFile <- getStatFile
   exists <- liftIO $ doesFileExist statFile
@@ -84,21 +83,20 @@ replyLookup :: (MonadIO m, PluginMonad m) => String -> [String] -> LookupResult 
 replyLookup _ _ Empty = return []
 replyLookup cmd arg Exact = do
   val <- unsafeQueryCommand cmd
-  return $ [ case arg of
-
-               []      -> ""
-               targets -> intercalate " " targets ++ ": "
-             ++ val
-           ]
+  return [ case arg of
+             []      -> ""
+             targets -> unwords targets ++ ": "
+           ++ val
+         ]
 replyLookup _ arg (Guess cmd) = do
   val <- unsafeQueryCommand cmd
   nick <- getUser
-  return $ [ nick ++ ": Did you mean " ++ cmd ++ "?"
-           , case arg of
-               []      -> ""
-               targets -> intercalate " " targets ++ ": "
-             ++ val
-           ]
+  return [ nick ++ ": Did you mean " ++ cmd ++ "?"
+         , case arg of
+             []      -> ""
+             targets -> unwords targets ++ ": "
+           ++ val
+         ]
 
 lookupCommand :: (MonadIO m, PluginMonad m) => String -> m LookupResult
 lookupCommand str = withStats (gets Map.keys) >>= \case
