@@ -30,7 +30,7 @@ import qualified Data.Map                   as M
 
 
 data Instruction = Definition String String
-                 | Evaluation String
+                 | Evaluation Bool String
                  | Command String [String]
                  deriving Show
 
@@ -46,7 +46,7 @@ type Parser = P.Parsec () String
 
 parser :: Parser Instruction
 parser =
-  P.try cmdParser <|> P.try defParser <|> Evaluation <$> (C.space *> P.takeRest)
+  P.try cmdParser <|> P.try defParser <|> Evaluation False <$> (C.space *> P.takeRest)
     where
       literal :: Parser String
       literal = (:) <$> (C.letterChar <|> C.char '_') <*> P.many (C.alphaNumChar <|> C.char '_' <|> C.char '-' <|> C.char '\'')
@@ -56,9 +56,12 @@ parser =
         C.space
         _ <- C.char ':'
         cmd <- literal
-        args <- P.many (C.space *> P.some (P.anySingleBut ' '))
-        C.space
-        return $ Command cmd args
+        case cmd of
+          "p" -> Evaluation True <$> (C.space *> P.takeRest)
+          _ -> do
+            args <- P.many (C.space *> P.some (P.anySingleBut ' '))
+            C.space
+            return $ Command cmd args
 
       defParser :: Parser Instruction
       defParser = do
@@ -76,12 +79,12 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
 
-nixEval :: (MonadReader Config m, MonadIO m) => String -> Bool -> m (Either String String)
-nixEval contents eval = do
+nixEval :: (MonadReader Config m, MonadIO m) => String -> EvalMode -> m (Either String String)
+nixEval contents mode = do
   nixPath <- reader nixPath'
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
   res <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
-    { mode = if eval then Lazy else Parse
+    { mode = mode
     , nixPath = nixPath
     , options = unsetNixOptions
       { allowImportFromDerivation = Just False
@@ -96,7 +99,7 @@ tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState 
 tryMod modi = do
   newState <- gets modi
   let contents = nixFile newState "null"
-  result <- nixEval contents False
+  result <- nixEval contents Parse
   case result of
     Right _ -> do
       put newState
@@ -109,10 +112,10 @@ handle (Definition lit val) = do
   case result of
     Nothing  -> return $ lit ++ " defined"
     Just err -> return err
-handle (Evaluation lit) = do
+handle (Evaluation strict lit) = do
   st <- get
   let contents = nixFile st ("_show (\n" ++ lit ++ "\n)")
-  result <- nixEval contents True
+  result <- nixEval contents (if strict then Strict else Lazy)
   case result of
     Right value -> return value
     Left err    -> return err
