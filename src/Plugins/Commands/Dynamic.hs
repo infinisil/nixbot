@@ -9,6 +9,7 @@ module Plugins.Commands.Dynamic
 
 import           Control.Monad.State
 import           Data.Aeson
+import           Data.Char
 import           Data.Functor
 import           Data.List
 import           Data.Map                (Map)
@@ -34,7 +35,7 @@ data Dynamic = DynamicQuery Key [User]
 
 dynamicParser :: Parser Dynamic
 dynamicParser = do
-  key <- parseWord
+  key <- fmap toLower <$> parseWord
   word "=" *> (
       eof $> DynamicDelete key
       <|> DynamicAssign key <$> getInput
