@@ -126,7 +126,7 @@ in
       after = [ "network.target" ];
       requires = [ "nixbot-master-updater.service" "nixbot-channel-updater.service" ];
       path = [ pkgs.nix-index ];
-      unitConfig.StarmLimitIntervalSec = 0;
+      unitConfig.StartLimitIntervalSec = 0;
       serviceConfig = {
         User = "nixbot";
         Group = "nixbot";
