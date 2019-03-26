@@ -22,7 +22,7 @@ import           Text.Regex.TDFA      ((=~))
 
 
 karmaRegex :: String
-karmaRegex = "([^[:space:]]+)\\+\\+"
+karmaRegex = "([^[:space:]]+)\\+\\+|<3 ([^[:space:]]+)"
 
 -- TODO: Use a single constructor with givenBy being a Maybe (or some iso of it)
 -- Needs to migrate the old data
@@ -80,7 +80,7 @@ karmaPlugin :: Plugin
 karmaPlugin = Plugin
   { pluginName = "karma"
   , pluginCatcher = \input@Input { inputMessage } ->
-      case fmap (!!1) (inputMessage =~ karmaRegex :: [[String]]) of
+      case filter (not . null) . concatMap tail $ (inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
         matches -> Catched True (input, matches)
   , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, unfilteredMatches) -> do
