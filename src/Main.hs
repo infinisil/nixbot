@@ -222,7 +222,7 @@ onMessage (m, e) = runStderrLoggingT $ do
       let input = toPluginInput msg
       lift $ traceUser input
       env <- ask
-      ps <- plugins
+      ps <- plugins (inputChannel input)
       _ <- runIRCT (runPlugins ps input) (amqpChannel env) (sharedState env)
       return ()
 
@@ -265,8 +265,13 @@ developFilter = Plugin
   , pluginHandler = const (return ())
   }
 
-plugins :: MonadReader Env m => m [Plugin]
-plugins = do
+plugins :: MonadReader Env m => Maybe Channel -> m [Plugin]
+-- TODO: Add a better way to configure channels
+plugins (Just "pijul") = return
+  [ tellSnooper
+  , karmaPlugin
+  ]
+plugins _ = do
   debug <- asks (debugMode . config)
 
   return $ [ developFilter | debug ]
