@@ -71,7 +71,7 @@ rateLimited channel user = do
 
 matchFilter :: MonadReader Config m => [String] -> m [String]
 matchFilter matches = do
-  blacklist <- Set.fromList <$> asks karmaBlacklist
+  blacklist <- Set.fromList <$> asks configKarmaBlacklist
   let matchSet = Set.fromList matches
       filtered = matchSet `Set.difference` blacklist
   return $ Set.toList filtered

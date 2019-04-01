@@ -7,10 +7,12 @@ module Plugins.Pr (prPlugin, Settings(..), ParsedIssue(..), ParseType(..)) where
 
 import           Plugins
 
+import           Config
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.List
+import qualified Data.Map               as Map
 import qualified Data.Text              as Text
 import           Data.Time
 import           GitHub                 hiding (Owner, Repo)
@@ -91,16 +93,37 @@ data Settings = Settings
   , prFilter :: ParsedIssue -> Bool
   }
 
+configToSettings :: PrConfig -> Settings
+configToSettings PrConfig
+  { configIgnoreStandaloneUnder
+  , configDefaultRepo
+  , configDefaultOwners
+  , configFallbackOwner }
+  = Settings
+  { defOwner = lookupRepo
+  , defRepo = configDefaultRepo
+  , prFilter = \case
+      ParsedIssue Hash owner repo number ->
+        repo /= configDefaultRepo ||
+        owner /= configFallbackOwner ||
+        number >= configIgnoreStandaloneUnder
+      _ -> True
+  }
+  where
+    lookupRepo repo = case Map.lookup repo configDefaultOwners of
+      Nothing    -> configFallbackOwner
+      Just owner -> owner
 
-
-prPlugin :: Settings -> Plugin
-prPlugin settings = Plugin
+prPlugin :: PrConfig -> Plugin
+prPlugin config = Plugin
   { pluginName = "pr"
-  , pluginCatcher = \Input { inputMessage } -> case filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage of
-      []     -> PassedOn
-      result -> Catched True result
+  , pluginCatcher = \Input { inputMessage } ->
+      case filter (prFilter settings) . nubBy sameIssue $ parseIssues settings inputMessage of
+        []     -> PassedOn
+        result -> Catched True result
   , pluginHandler = \result ->
       forM_ result $ fetchInfo settings >=> \case
         Nothing -> return ()
         Just msg -> reply msg
   }
+  where settings = configToSettings config

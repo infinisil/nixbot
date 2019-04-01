@@ -81,7 +81,7 @@ nixFile NixState { variables, scopes } lit = "let\n"
 
 nixEval :: (MonadReader Config m, MonadIO m) => String -> EvalMode -> m (Either String String)
 nixEval contents mode = do
-  nixPath <- reader nixPath'
+  nixPath <- reader configNixPath'
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
   res <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
     { mode = mode

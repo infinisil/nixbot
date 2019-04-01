@@ -95,7 +95,7 @@ main = bracket setup tearDown start where
     conn <- A.openConnection'' (amqpOptions config)
     chan <- A.openChannel conn
 
-    let sharedStateFile = stateDir config </> "new/shared"
+    let sharedStateFile = configStateDir config </> "new/shared"
     exists <- doesFileExist sharedStateFile
     sharedState <- if not exists then return (SharedState Set.empty) else
       decodeFileStrict sharedStateFile >>= \case
@@ -112,7 +112,7 @@ main = bracket setup tearDown start where
 
   tearDown :: (Env, TMVar ()) -> IO ()
   tearDown (env, _) = do
-    let sharedStateFile = stateDir (config env) </> "new/shared"
+    let sharedStateFile = configStateDir (config env) </> "new/shared"
     putStrLn "Shutting down, saving global state"
     finalSharedState <- readTVarIO (sharedState env)
     encodeFile sharedStateFile finalSharedState
@@ -228,23 +228,6 @@ onMessage (m, e) = runStderrLoggingT $ do
 
   liftIO $ A.ackEnv e
 
-prSettings :: Settings
-prSettings = Settings
-  { defOwner = \case
-      "home-manager" -> "rycee"
-      "cachix" -> "cachix"
-      "nix-darwin" -> "LnL7"
-      "NUR" -> "nix-community"
-      "wiki" -> "nix-community"
-      "hnix" -> "haskell-nix"
-      _ -> "NixOS"
-  , defRepo = "nixpkgs"
-  , prFilter = \case
-      ParsedIssue Hash "NixOS" "nixpkgs" number -> number >= 10
-      _ -> True
-  }
-
-
 examplePlugin :: Plugin
 examplePlugin = Plugin
   { pluginName = "example"
@@ -272,7 +255,8 @@ plugins (Just "pijul") = return
   , karmaPlugin
   ]
 plugins _ = do
-  debug <- asks (debugMode . config)
+  debug <- asks (configDebugMode . config)
+  prConfig <- asks (configPr . configPlugins . config)
 
   return $ [ developFilter | debug ]
     ++
@@ -282,7 +266,7 @@ plugins _ = do
     , commandsPlugin'
     , nixreplPlugin
     , karmaPlugin
-    , prPlugin prSettings
+    , prPlugin prConfig
     ]
 
 

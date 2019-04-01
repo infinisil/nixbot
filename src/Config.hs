@@ -5,10 +5,16 @@
 module Config ( getConfig
               , amqpOptions
               , Config(..)
+              , PluginConfig(..)
+              , PrConfig(..)
               ) where
 
 import           Data.Aeson
 import qualified Data.ByteString.Lazy.Char8 as BS
+import           Data.Char                  (toLower)
+import           Data.List                  (stripPrefix)
+import           Data.Map                   (Map)
+import           Data.Maybe                 (fromMaybe)
 import           Data.Text                  (Text)
 import           GHC.Generics               (Generic)
 import           Network.AMQP
@@ -27,23 +33,58 @@ opts = info (parser <**> helper)
   <> header "nixbot - nix bot"
    )
 
+lowerFirst :: [Char] -> [Char]
+lowerFirst []       = []
+lowerFirst (c:rest) = toLower c : rest
+
+
+customOptions :: Options
+customOptions = defaultOptions
+  { fieldLabelModifier = \field ->
+      lowerFirst .
+      fromMaybe (error $ "field " ++ field ++ " in Config.hs not prefixed with \"config\"") .
+      stripPrefix "config" $
+      field
+  }
+
+data PrConfig = PrConfig
+  { configIgnoreStandaloneUnder :: Int
+  , configDefaultRepo           :: String
+  , configDefaultOwners         :: Map String String
+  , configFallbackOwner         :: String
+  } deriving (Show, Generic)
+
+instance FromJSON PrConfig where
+  parseJSON = genericParseJSON customOptions
+
+data PluginConfig = PluginConfig
+  { configPr :: PrConfig
+  } deriving (Show, Generic)
+
+instance FromJSON PluginConfig where
+  parseJSON = genericParseJSON customOptions
+
 data Config = Config
-  { user           :: Text
-  , password       :: Text
-  , stateDir       :: FilePath
-  , nixPath'       :: [String]
-  , karmaBlacklist :: [String]
-  , debugMode      :: Bool
+  { configUser           :: Text
+  , configPassword       :: Text
+  , configStateDir       :: FilePath
+  , configNixPath'       :: [String]
+  , configKarmaBlacklist :: [String]
+  , configDebugMode      :: Bool
+  , configPlugins        :: PluginConfig
   } deriving (Show, Generic)
 
 instance FromJSON Config where
+  parseJSON = genericParseJSON customOptions
+
+
 
 amqpOptions :: Config -> ConnectionOpts
-amqpOptions Config { user, password } = defaultConnectionOpts
+amqpOptions Config { configUser, configPassword } = defaultConnectionOpts
   { coVHost = "ircbot"
   , coTLSSettings = Just TLSTrusted
   , coServers = [("events.nix.gsc.io", 5671)]
-  , coAuth = [ amqplain user password ]
+  , coAuth = [ amqplain configUser configPassword ]
   }
 
 getConfig :: IO Config

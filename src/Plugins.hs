@@ -98,7 +98,7 @@ runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case
   PassedOn -> runPlugins ps input
   Catched absorbed p -> do
     cfg <- asks config
-    unPluginT (runReaderT (pluginHandler p) cfg) (stateDir cfg </> "new", pluginName, input)
+    unPluginT (runReaderT (pluginHandler p) cfg) (configStateDir cfg </> "new", pluginName, input)
     if absorbed then return True else runPlugins ps input
 
 reply :: (IRCMonad m, PluginMonad m) => Message -> m ()
