@@ -22,6 +22,9 @@ executable nixbot
   other-modules:       Config
                        Utils
                        Plugins
+                       Log
+                       Frontend.Types
+                       Frontend.AMQP
                        Plugins.Commands
                        Plugins.Karma
                        Plugins.Commands.Find
@@ -42,24 +45,19 @@ executable nixbot
                      , amqp
                      , text
                      , stm
+                     , stm-chans
+                     , async
                      , containers
-                     , strict
                      , github
-                     , http-conduit
                      , regex-tdfa
                      , bytestring
                      , mtl
                      , edit-distance
-                     , monad-logger
                      , directory
                      , filepath
                      , unordered-containers
                      , megaparsec
                      , process
-                     , data-default
-                     , file-embed
-                     , versions
-                     , either
                      , http-client
                      , http-types
                      , http-client-tls

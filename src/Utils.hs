@@ -1,10 +1,14 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Utils (prettySeconds, mostMatching, paging) where
 
 import           Data.List
 import           Data.Maybe
+import           Data.Text  (Text)
+import qualified Data.Text  as Text
 
-prettySeconds :: Int -> Integer -> String
-prettySeconds relevant seconds = intercalate ", " relevantStrings
+prettySeconds :: Int -> Integer -> Text
+prettySeconds relevant seconds = Text.intercalate ", " relevantStrings
   where
     relevantStrings = take relevant . catMaybes $ format "year" rest : strings
 
@@ -19,8 +23,8 @@ prettySeconds relevant seconds = intercalate ", " relevantStrings
     next val (unit, str) = format str <$> divMod val unit
 
     format _ 0   = Nothing
-    format str 1 = Just $ "1 " ++ str
-    format str n = Just $ show n ++ " " ++ str ++ "s"
+    format str 1 = Just $ "1 " <> str
+    format str n = Just $ Text.pack (show n) <> " " <> str <> "s"
 
 
 -- | Given a set of items, a mapping from a page number and a set of items to a page, and a page validity condition, return the resulting valid pages. Doesn't return all elements paged in case the page condition can't be met.

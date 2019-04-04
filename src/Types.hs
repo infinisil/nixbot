@@ -4,11 +4,14 @@ module Types where
 
 import           Config
 import           Control.Concurrent.STM
+import           Control.Concurrent.STM.TMQueue
+import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.Set               (Set)
+import           Data.Set                       (Set)
+import           Data.Text                      (Text)
+import           Frontend.Types
 import           GHC.Generics
 import           IRC
-import qualified Network.AMQP
 
 newtype SharedState = SharedState
   { knownUsers :: Set User
@@ -19,6 +22,9 @@ instance ToJSON SharedState
 
 data Env = Env
   { config      :: Config
-  , amqpChannel :: Network.AMQP.Channel
+  , logQueue    :: TMQueue Text
   , sharedState :: TVar SharedState
+  , frontend    :: Frontend
   }
+
+type App = ReaderT Env IO

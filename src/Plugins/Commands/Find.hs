@@ -19,10 +19,10 @@ import           Data.Void
 import           GitHub
 import           GitHub.Data.Name
 import qualified GitHub.Endpoints.Repos.Commits as C
-import           IRC
 import           Plugins
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
+import           Types
 
 type Parser = Parsec Void String
 
@@ -67,7 +67,7 @@ findFunction cache args = do
     results -> return $ map (("Found file: " ++) . Text.unpack) results
 
 
-findHandle :: (MonadIO m, PluginMonad m, IRCMonad m) => Find -> m ()
+findHandle :: Find -> PluginT App ()
 findHandle _ = reply ",find is temporarily unimplemented"
 {-findHandle FindHelp = reply "Use ,find to get a GitHub link to the master version of files in nixpkgs, e.g. \",find hello/default.nix\" or \",find all-packages.nix\""
 findHandle (FindPath path) = do

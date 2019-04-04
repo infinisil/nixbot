@@ -1,13 +1,15 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Plugins.Commands (commandsPlugin') where
 
 import           Control.Monad.IO.Class
 import           Data.Functor               (($>))
-import           IRC                        hiding (paging)
+import qualified Data.Text                  as Text
+import           Frontend.Types
 import           Plugins
 import           Plugins.Commands.Dynamic
 import           Plugins.Commands.Find
@@ -16,6 +18,7 @@ import           Plugins.Commands.Shared
 import           Plugins.Commands.Tell
 import           Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer as L
+import           Types
 
 data Command = Find Find
              | Tell Tell
@@ -31,7 +34,7 @@ parseCommand = Listing <$> listingParser
   <|> word "locate" *> (Locate <$> locateParser)
   <|> Dynamic <$> dynamicParser
 
-handleCommand :: (MonadIO m, PluginMonad m, IRCMonad m) => Command -> m ()
+handleCommand :: Command -> PluginT App ()
 handleCommand (Tell tell)       = tellHandle tell
 handleCommand (Find find')      = findHandle find'
 handleCommand (Locate locate)   = locateHandle locate
@@ -53,8 +56,8 @@ listingParser = eof $> Nothing
 commandsPlugin' :: Plugin
 commandsPlugin' = Plugin
   { pluginName = "commands"
-  , pluginCatcher = \Input { inputMessage } -> case inputMessage of
-      ',':command -> Catched True $ parse parseCommand "(message)" command
+  , pluginCatcher = \Input { inputMessage } -> case Text.uncons inputMessage of
+      Just (',', command) -> Catched True $ parse parseCommand "(message)" (Text.unpack command)
       _           -> PassedOn
   , pluginHandler = \case
       Left err -> do

@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Plugins.Commands.Locate
   ( Locate
   , locateParser
@@ -10,6 +12,8 @@ import           Data.Char
 import           Data.Functor
 import           Data.List
 import           Data.Maybe
+import           Data.Text                  (Text)
+import qualified Data.Text                  as Text
 import           Data.Void
 import           IRC
 import           Plugins
@@ -19,6 +23,7 @@ import           System.Process
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import           Types
 import           Utils
 
 type Parser = Parsec Void String
@@ -47,7 +52,7 @@ locateParser = eof $> LocateHelp
   <|> word "man" *> (LocateWithMode Man <$> parseWord)
   <|> LocateWithMode Generic <$> parseWord
 
-locateHandle :: (MonadIO m, PluginMonad m, IRCMonad m) => Locate -> m ()
+locateHandle :: Locate -> PluginT App ()
 locateHandle LocateHelp = reply "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)"
 locateHandle (LocateWithMode mode str) = do
   result <- doNixLocate mode str
@@ -57,17 +62,18 @@ stripSuffix :: String -> String -> String
 stripSuffix suffix str = if suffix `isSuffixOf` str then
   take (length str - length suffix) str else str
 
-doNixLocate :: MonadIO m => LocateMode -> String -> m String
+doNixLocate :: MonadIO m => LocateMode -> String -> m Text
 doNixLocate locateMode arg = do
   attrs <- nixLocate locateMode arg
   return $ case attrs of
-    Left err -> err
+    Left err -> Text.pack err
     Right [] -> "Couldn't find in any packages"
     Right packages -> fromMaybe "Found in packages, but the package attribute is too long for an IRC message.."
       $ mostMatching packages present ircLimit
       where
-        present (shown, extra) = "Found in packages: " ++ intercalate ", " shown ++
-          if null extra then "" else ", and " ++ show (length extra) ++ " more"
+        present :: ([Text], [Text]) -> Text
+        present (shown, extra) = "Found in packages: " <> Text.intercalate ", " shown <>
+          if null extra then "" else ", and " <> Text.pack (show (length extra)) <> " more"
 
 argsForMode :: LocateMode -> String -> [String]
 argsForMode Generic arg =
@@ -85,14 +91,14 @@ argsForMode Man arg =
   , "/share/man/man[0-9]/" ++ arg ++ ".[0-9].gz"
   ]
 
-selectAttrs :: [NixLocateResult] -> [String]
-selectAttrs = sortOn (length &&& id) . nub . map (stripSuffix ".out" . intercalate "." . attrPath)
+selectAttrs :: [NixLocateResult] -> [Text]
+selectAttrs = map Text.pack . sortOn (length &&& id) . nub . map (stripSuffix ".out" . intercalate "." . attrPath)
 
 nixLocateParser :: Parser [NixLocateResult]
 nixLocateParser = many line <* eof where
   line :: Parser NixLocateResult
   line = NixLocateResult
-    <$> (many (noneOf ". ") `sepBy` char '.' <?> "attribute path") <* space
+    <$> (many (noneOf (". " :: String)) `sepBy` char '.' <?> "attribute path") <* space
     <*> (toNum <$> L.decimal `sepBy` char ',' <?> "file size") <* char ' '
     <*> (anySingleBut ' ' <?> "file type") <* char ' '
     <*> (many (anySingleBut '\n') <?> "file path") <* newline
@@ -122,7 +128,7 @@ nixLocate' locateMode whole file = do
         return $ Left $ "nix-locate output parsing error: " ++ show err
       Right res -> return $ Right res
 
-nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [String])
+nixLocate :: MonadIO m => LocateMode -> String -> m (Either String [Text])
 nixLocate locateMode file = do
   whole <- nixLocate' locateMode True file
   fmap selectAttrs <$> case whole of

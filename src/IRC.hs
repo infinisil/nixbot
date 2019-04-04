@@ -1,32 +1,17 @@
 module IRC where
 
-import           Control.Monad.Logger
-import           Control.Monad.Reader
+import           Data.Text (Text)
+import qualified Data.Text as Text
 
-type User = String
-type Channel = String
-type Message = String
-
-class Monad m => IRCMonad m where
-  privMsg :: User -> Message -> m ()
-  chanMsg :: Channel -> Message -> m ()
-  isKnown :: User -> m Bool
-
-instance IRCMonad m => IRCMonad (LoggingT m) where
-  privMsg user msg = lift $ privMsg user msg
-  chanMsg chan msg = lift $ chanMsg chan msg
-  isKnown user = lift $ isKnown user
-
-instance IRCMonad m => IRCMonad (ReaderT r m) where
-  privMsg user msg = lift $ privMsg user msg
-  chanMsg channel msg = lift $ chanMsg channel msg
-  isKnown user = lift $ isKnown user
+type User = Text
+type Channel = Text
+type Message = Text
 
 lengthLimit :: Int
 lengthLimit = 454
 
-ircLimit :: String -> Bool
-ircLimit = (<lengthLimit) . length
+ircLimit :: Text -> Bool
+ircLimit = (<lengthLimit) . Text.length
 
 type Page = Int
 

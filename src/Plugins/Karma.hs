@@ -2,23 +2,27 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Plugins.Karma (karmaPlugin) where
 
+import           Frontend.Types
 import           Plugins
 
 import           Config
 import           Control.Monad.Reader
 import           Data.Aeson
-import           Data.List            (intercalate)
 import           Data.Maybe
 import qualified Data.Set             as Set
+import           Data.Text            (Text)
+import qualified Data.Text            as Text
 import           Data.Time
 import           GHC.Generics
 import           IRC
 import           System.Directory
 import           System.FilePath
 import           Text.Regex.TDFA      ((=~))
+import           Types
 
 
 karmaRegex :: String
@@ -50,7 +54,7 @@ instance ToJSON KarmaEntry
 maxKarmaPerTime :: (Int, NominalDiffTime)
 maxKarmaPerTime = (10, 5*60)
 
-rateLimited :: (PluginMonad m, MonadIO m, IRCMonad m) => Channel -> User -> m Bool
+rateLimited :: Channel -> User -> PluginT App Bool
 rateLimited channel user = do
   giverDir <- getUserState user
 
@@ -66,12 +70,12 @@ rateLimited channel user = do
   let onlyRecent = takeWhile ((< snd maxKarmaPerTime) . diffUTCTime time) rates
   let tooMany = fst maxKarmaPerTime <= length onlyRecent
   liftIO $ encodeFile rateFile $ time : onlyRecent
-  when tooMany $ chanMsg channel $ user ++ ": You've been giving a bit too much karma lately!"
+  when tooMany $ chanMsg channel $ user <> ": You've been giving a bit too much karma lately!"
   return tooMany
 
-matchFilter :: MonadReader Config m => [String] -> m [String]
+matchFilter :: [Text] -> App [Text]
 matchFilter matches = do
-  blacklist <- Set.fromList <$> asks configKarmaBlacklist
+  blacklist <- Set.fromList <$> asks (configKarmaBlacklist . config)
   let matchSet = Set.fromList matches
       filtered = matchSet `Set.difference` blacklist
   return $ Set.toList filtered
@@ -80,30 +84,30 @@ karmaPlugin :: Plugin
 karmaPlugin = Plugin
   { pluginName = "karma"
   , pluginCatcher = \input@Input { inputMessage } ->
-      case filter (not . null) . concatMap tail $ (inputMessage =~ karmaRegex :: [[String]]) of
+      case filter (not . null) . concatMap tail $ (Text.unpack inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
-        matches -> Catched True (input, matches)
-  , pluginHandler = \(Input { inputChannel, inputUser, inputMessage }, unfilteredMatches) -> do
-      matches <- matchFilter unfilteredMatches
-      case inputChannel of
-        Nothing -> privMsg inputUser $ "As much as you love "
-          ++ intercalate ", " matches ++ ", you can't give them karma here!"
-        Just channel -> rateLimited channel inputUser >>= \limited -> unless limited $ do
+        matches -> Catched True (input, map Text.pack matches)
+  , pluginHandler = \(Input { inputSender, inputMessage }, unfilteredMatches) -> do
+      matches <- lift $ matchFilter unfilteredMatches
+      case inputSender of
+        Left user -> privMsg user $ "As much as you love "
+          <> Text.intercalate ", " matches <> ", you can't give them karma here!"
+        Right (channel, user) -> rateLimited channel user >>= \limited -> unless limited $ do
           time <- liftIO getCurrentTime
 
           results <- forM matches $ \receiver ->
-            isKnown receiver >>= \case
+            lift (isKnown receiver) >>= \case
               False -> return Nothing
               True -> do
                 -- TODO: Only allow karma for users that have talked before
-                let selfKarma = receiver == inputUser
+                let selfKarma = receiver == user
                 let entry = if selfKarma then SelfKarma
                       { givenIn = channel
                       , givenAt = time
                       , karmaContext = inputMessage
                       }
                     else KarmaEntry
-                      { givenBy = inputUser
+                      { givenBy = user
                       , givenIn = channel
                       , givenAt = time
                       , karmaContext = inputMessage
@@ -119,9 +123,9 @@ karmaPlugin = Plugin
                     Right entries -> return entries
                 let newEntries = entry : entries
                 liftIO $ encodeFile receiverFile newEntries
-                return $ Just $ receiver ++ "'s karma got "
-                  ++ (if selfKarma then "decreased" else "increased")
-                  ++ " to " ++ show (countKarma newEntries)
+                return $ Just $ receiver <> "'s karma got "
+                  <> (if selfKarma then "decreased" else "increased")
+                  <> " to " <> Text.pack (show (countKarma newEntries))
 
-          chanMsg channel $ intercalate ", " $ catMaybes results
+          chanMsg channel $ Text.intercalate ", " $ catMaybes results
   }

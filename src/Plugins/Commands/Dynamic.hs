@@ -1,4 +1,6 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns      #-}
 
 module Plugins.Commands.Dynamic
   ( Dynamic(..)
@@ -11,37 +13,40 @@ import           Control.Monad.State
 import           Data.Aeson
 import           Data.Char
 import           Data.Functor
+import Types
 import           Data.List
 import           Data.Map                (Map)
 import qualified Data.Map                as Map
 import           Data.Maybe
 import           Data.Ord
-import           IRC                     hiding (paging)
+import           Data.Text               (Text)
+import qualified Data.Text               as Text
+import qualified Data.Text.IO            as TIO
 import           Plugins
+import           IRC                     hiding (paging)
 import           Plugins.Commands.Shared
 import           System.Directory
 import           System.FilePath
-import qualified System.IO.Strict        as SIO
 import           Text.EditDistance       (defaultEditCosts, levenshteinDistance)
 import           Text.Megaparsec
 import           Utils
 
-type Key = String
+type Key = Text
 
 data Dynamic = DynamicQuery Key [User]
-             | DynamicAssign Key String
+             | DynamicAssign Key Text
              | DynamicDelete Key
              deriving (Show)
 
 dynamicParser :: Parser Dynamic
 dynamicParser = do
-  key <- fmap toLower <$> parseWord
+  key <- Text.pack . fmap toLower <$> parseWord
   word "=" *> (
       eof $> DynamicDelete key
-      <|> DynamicAssign key <$> getInput
-    ) <|> DynamicQuery key <$> many parseWord
+      <|> DynamicAssign key <$> (Text.pack <$> getInput)
+    ) <|> DynamicQuery key <$> many (Text.pack <$> parseWord)
 
-dynamicHandle :: (MonadIO m, PluginMonad m, IRCMonad m) => Dynamic -> m ()
+dynamicHandle :: Dynamic -> PluginT App ()
 dynamicHandle (DynamicQuery key users) = do
   res <- lookupCommand key
   replies <- replyLookup key users res
@@ -59,7 +64,7 @@ getStatFile = (</> "stats.json") <$> getGlobalState
 getCommandDir :: PluginMonad m => m FilePath
 getCommandDir = (</> "commands") <$> getGlobalState
 
-type Stats = Map String Int
+type Stats = Map Text Int
 
 withStats :: (PluginMonad m, MonadIO m) => StateT Stats m a -> m (Either String a)
 withStats action = do
@@ -78,84 +83,85 @@ withStats action = do
       liftIO $ encodeFile statFile newStats
       return $ Right res
 
-data LookupResult = Empty | Exact | Guess String
+data LookupResult = Empty | Exact | Guess Text
 
-replyLookup :: (MonadIO m, PluginMonad m) => String -> [String] -> LookupResult -> m [String]
+replyLookup :: Text -> [Text] -> LookupResult -> PluginT App [Text]
 replyLookup _ _ Empty = return []
 replyLookup cmd arg Exact = do
   val <- unsafeQueryCommand cmd
   return [ case arg of
              []      -> ""
-             targets -> unwords targets ++ ": "
-           ++ val
+             targets -> Text.unwords targets <> ": "
+           <> val
          ]
 replyLookup _ arg (Guess cmd) = do
   val <- unsafeQueryCommand cmd
   nick <- getUser
-  return [ nick ++ ": Did you mean " ++ cmd ++ "?"
+  return [ nick <> ": Did you mean " <> cmd <> "?"
          , case arg of
-             []      -> ""
-             targets -> unwords targets ++ ": "
-           ++ val
+             []-> ""
+             targets -> Text.unwords targets <> ": "
+           <> val
          ]
 
-lookupCommand :: (MonadIO m, PluginMonad m) => String -> m LookupResult
+lookupCommand :: (MonadIO m, PluginMonad m) => Text -> m LookupResult
 lookupCommand str = withStats (gets Map.keys) >>= \case
   Left _ -> return Empty
   Right cmds -> return $ case result of
     Nothing -> Empty
     Just (0, _) -> Exact
     Just (dist, word') ->
-      if fromIntegral dist / fromIntegral (length word') < (0.34 :: Float) then Guess word' else Empty
+      if fromIntegral dist / fromIntegral (Text.length word') < (0.34 :: Float) then Guess word' else Empty
     where
-      assos = map (\k -> (levenshteinDistance defaultEditCosts str k, k)) cmds
+      str' = Text.unpack str
+      assos = map (\k -> (levenshteinDistance defaultEditCosts str' (Text.unpack k), k)) cmds
       result = if null assos then Nothing else Just $ minimumBy (comparing fst) assos
 
-listCommands :: (MonadIO m, PluginMonad m) => [String] -> Maybe Int -> m String
+listCommands :: (MonadIO m, PluginMonad m) => [Text] -> Maybe Int -> m Text
 listCommands special mpage = do
   res <- withStats $ do
     stats <- get
     let sorted = fmap fst . sortBy (flip $ comparing snd) . Map.assocs $ stats
         pages = paging sorted getPage ircLimit
-    return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " ++ show (length pages - 1)
-  return $ either id id res
+    return $ if 0 <= page && page < length pages then pages !! page else "Invalid page index, the last page is number " <> Text.pack (show (length pages - 1))
+  return $ either Text.pack id res
   where
-    getPage 0 items = "Special commands: " ++ unwords special
-      ++ " - Commands sorted by use count, page 0 (use ,<n> to view page <n>): " ++ unwords items
-    getPage n items = "Page " ++ show n ++ ": " ++ unwords items
+    getPage 0 items = "Special commands: " <> Text.unwords special
+      <> " - Commands sorted by use count, page 0 (use ,<n> to view page <n>): " <> Text.unwords items
+    getPage n items = "Page " <> Text.pack (show n) <> ": " <> Text.unwords items
     page = fromMaybe 0 mpage
 
 
-unsafeQueryCommand :: (MonadIO m, PluginMonad m) => String -> m String
+unsafeQueryCommand :: Text -> PluginT App Text
 unsafeQueryCommand cmd = do
   cmdDir <- getCommandDir
   _ <- withStats $ modify $ Map.insertWith (+) cmd 1
-  liftIO (SIO.readFile $ cmdDir </> cmd)
+  liftIO (TIO.readFile $ cmdDir </> Text.unpack cmd)
 
-setCommand :: (MonadIO m, PluginMonad m) => String -> String -> m String
+setCommand :: (MonadIO m, PluginMonad m) => Text -> Text -> m Text
 setCommand cmd val = if not (validCmd cmd) then return "Invalid command key" else do
-  file <- (</> cmd) <$> getCommandDir
+  file <- (</> Text.unpack cmd) <$> getCommandDir
   exists <- liftIO $ doesFileExist file
 
-  oldValue <- if exists then Just <$> liftIO (SIO.readFile file) else return Nothing
+  oldValue <- if exists then Just <$> liftIO (TIO.readFile file) else return Nothing
   getCommandDir >>= liftIO . createDirectoryIfMissing True
-  liftIO $ writeFile file val
+  liftIO $ TIO.writeFile file val
 
   _ <- withStats $ modify $ Map.insertWith const cmd 0
   return $ case oldValue of
-    Just old -> cmd ++ " redefined, was defined as " ++ old
-    Nothing  -> cmd ++ " defined"
+    Just old -> cmd <> " redefined, was defined as " <> old
+    Nothing  -> cmd <> " defined"
 
-validCmd :: String -> Bool
-validCmd str = str == takeFileName str && isValid str
+validCmd :: Text -> Bool
+validCmd (Text.unpack -> str) = str == takeFileName str && isValid str
 
-delCommand :: (MonadIO m, PluginMonad m) => String -> m String
+delCommand :: (MonadIO m, PluginMonad m) => Text -> m Text
 delCommand cmd = do
-  file <- (</> cmd) <$> getCommandDir
+  file <- (</> Text.unpack cmd) <$> getCommandDir
   exists <- liftIO $ doesFileExist file
   if exists then do
-    val <- liftIO $ SIO.readFile file
+    val <- liftIO $ TIO.readFile file
     liftIO $ removeFile file
     _ <- withStats $ modify $ Map.delete cmd
-    return $ "Undefined " ++ cmd ++ ", was defined as: " ++ val
-  else return $ cmd ++ " is already undefined"
+    return $ "Undefined " <> cmd <> ", was defined as: " <> val
+  else return $ cmd <> " is already undefined"

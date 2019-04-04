@@ -1,25 +1,22 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RankNTypes       #-}
 
 module Plugins where
-import           Control.Monad.Logger
 import           Control.Monad.Reader
 import Types
 import           System.Directory
+import qualified Data.Text as Text
 import           System.FilePath
+import qualified Data.Set as Set
+import Control.Concurrent.STM
 import           Config
 import           IRC
-
-data Input = Input
-  { inputUser    :: User
-  , inputChannel :: Maybe Channel
-  , inputMessage :: Message
-  } deriving (Show)
+import Frontend.Types
+import Frontend.AMQP
 
 class Monad m => PluginMonad m where
   getGlobalState :: m FilePath
@@ -37,7 +34,7 @@ data HandlerResult p = Catched Bool p
 data Plugin = forall p . Plugin
   { pluginName    :: String
   , pluginCatcher :: Input -> HandlerResult p
-  , pluginHandler :: forall m . (MonadReader Config m, MonadLogger m, IRCMonad m, MonadIO m, PluginMonad m) => p -> m ()
+  , pluginHandler :: p -> PluginT App ()
   }
 
 newtype PluginT m a = PluginT { unPluginT :: (FilePath, String, Input) -> m a } deriving (Functor)
@@ -57,32 +54,29 @@ instance MonadIO m => MonadIO (PluginT m) where
 instance MonadTrans PluginT where
   lift a = PluginT $ const a
 
-instance MonadLogger m => MonadLogger (PluginT m) where
-
-instance IRCMonad m => IRCMonad (PluginT m) where
-  privMsg user msg = lift $ privMsg user msg
-  chanMsg channel msg = lift $ chanMsg channel msg
-  isKnown user = lift $ isKnown user
-
 instance MonadIO m => PluginMonad (PluginT m) where
   getGlobalState = PluginT $ \(base, pluginName, _) -> do
     let dir = base </> "global" </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
   getChannelState channel = PluginT $ \(base, pluginName, _) -> do
-    let dir = base </> "channel" </> channel </> pluginName
+    let dir = base </> "channel" </> Text.unpack channel </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
   getUserState user = PluginT $ \(base, pluginName, _) -> do
-    let dir = base </> "user" </> user </> pluginName
+    let dir = base </> "user" </> Text.unpack user </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
   getChannelUserState channel user = PluginT $ \(base, pluginName, _) -> do
-    let dir = base </> "channel-user" </> channel </> user </> pluginName
+    let dir = base </> "channel-user" </> Text.unpack channel </> Text.unpack user </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
-  getUser = PluginT $ \(_, _, Input { inputUser }) -> return inputUser
-  getChannel = PluginT $ \(_, _, Input { inputChannel }) -> return inputChannel
+  getUser = PluginT $ \(_, _, Input { inputSender }) -> case inputSender of
+    Left user -> return user
+    Right (_, user) -> return user
+  getChannel = PluginT $ \(_, _, Input { inputSender }) -> case inputSender of
+    Left _ -> return Nothing
+    Right (chan, _) -> return $ Just chan
 
 instance PluginMonad m => PluginMonad (ReaderT r m) where
   getGlobalState = lift getGlobalState
@@ -92,18 +86,39 @@ instance PluginMonad m => PluginMonad (ReaderT r m) where
   getUser = lift getUser
   getChannel = lift getChannel
 
-runPlugins :: (MonadLogger m, MonadReader Env m, MonadIO m, IRCMonad m) => [Plugin] -> Input -> m Bool
+runPlugins :: [Plugin] -> Input -> App Bool
 runPlugins [] _ = return False
 runPlugins (Plugin { pluginName, pluginCatcher, pluginHandler }:ps) input = case pluginCatcher input of
   PassedOn -> runPlugins ps input
   Catched absorbed p -> do
     cfg <- asks config
-    unPluginT (runReaderT (pluginHandler p) cfg) (configStateDir cfg </> "new", pluginName, input)
+    unPluginT (pluginHandler p) (configStateDir cfg </> "new", pluginName, input)
     if absorbed then return True else runPlugins ps input
 
-reply :: (IRCMonad m, PluginMonad m) => Message -> m ()
-reply msg = getChannel >>= \case
-  Nothing -> do
-    user <- getUser
-    privMsg user msg
-  Just chan -> chanMsg chan msg
+privMsg :: User -> Message -> PluginT App ()
+privMsg user msg = lift $ sendFrontend Output
+  { outputReceiver = Left user
+  , outputMessage = msg
+  }
+
+chanMsg :: Channel -> Message -> PluginT App ()
+chanMsg chan msg = lift $ sendFrontend Output
+  { outputReceiver = Right chan
+  , outputMessage = msg
+  }
+
+
+isKnown :: User -> App Bool
+isKnown user = do
+  stateVar <- asks sharedState
+  state <- lift $ readTVarIO stateVar
+  return $ Set.member user (knownUsers state)
+
+reply :: Message -> PluginT App ()
+reply msg = do
+  chan <- getChannel
+  case chan of
+    Nothing -> do
+      user <- getUser
+      privMsg user msg
+    Just ch -> chanMsg ch msg

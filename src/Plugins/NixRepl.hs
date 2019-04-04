@@ -6,11 +6,13 @@
 module Plugins.NixRepl (nixreplPlugin) where
 
 import           Config
+import           Frontend.Types
+import           Log
 import           NixEval
 import           Plugins
+import           Types
 
 import           Control.Applicative        ((<|>))
-import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Data.Aeson
@@ -18,8 +20,8 @@ import           Data.Bifunctor             (bimap)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.List
 import           Data.Text                  (pack)
+import qualified Data.Text                  as Text
 import           GHC.Generics
-import           IRC
 import           System.Directory
 import           System.FilePath
 import qualified Text.Megaparsec            as P
@@ -43,6 +45,8 @@ instance FromJSON NixState
 instance ToJSON NixState
 
 type Parser = P.Parsec () String
+
+type ReplApp = StateT NixState (PluginT App)
 
 parser :: Parser Instruction
 parser =
@@ -79,11 +83,11 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
 
-nixEval :: (MonadReader Config m, MonadIO m) => String -> EvalMode -> m (Either String String)
+nixEval :: String -> EvalMode -> App (Either String String)
 nixEval contents mode = do
-  nixPath <- reader configNixPath'
+  nixPath <- asks (configNixPath' . config)
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
-  res <- liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
+  res <- lift . liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
     { mode = mode
     , nixPath = nixPath
     , options = unsetNixOptions
@@ -95,18 +99,18 @@ nixEval contents mode = do
     }
   return $ bimap (outputTransform . BS.unpack) (outputTransform . BS.unpack) res
 
-tryMod :: (MonadReader Config m, MonadIO m, MonadState NixState m) => (NixState -> NixState) -> m (Maybe String)
+tryMod :: (NixState -> NixState) -> ReplApp (Maybe String)
 tryMod modi = do
   newState <- gets modi
   let contents = nixFile newState "null"
-  result <- nixEval contents Parse
+  result <- lift . lift $ nixEval contents Parse
   case result of
     Right _ -> do
       put newState
       return Nothing
     Left err -> return $ Just err
 
-handle :: (MonadReader Config m, MonadIO m, MonadState NixState m) => Instruction -> m String
+handle :: Instruction -> ReplApp String
 handle (Definition lit val) = do
   result <- tryMod (\s -> s { variables = M.insert lit val (variables s) })
   case result of
@@ -115,7 +119,7 @@ handle (Definition lit val) = do
 handle (Evaluation strict lit) = do
   st <- get
   let contents = nixFile st ("_show (\n" ++ lit ++ "\n)")
-  result <- nixEval contents (if strict then Strict else Lazy)
+  result <- lift . lift $ nixEval contents (if strict then Strict else Lazy)
   case result of
     Right value -> return value
     Left err    -> return err
@@ -163,28 +167,28 @@ defaultVariables = M.fromList
 nixreplPlugin :: Plugin
 nixreplPlugin = Plugin
   { pluginName = "nixrepl"
-  , pluginCatcher = \Input { inputUser, inputChannel, inputMessage } -> case inputMessage of
+  , pluginCatcher = \Input { inputSender, inputMessage } -> case Text.unpack inputMessage of
       '>':' ':nixString -> case P.runParser parser "(input)" nixString of
-        Right instruction -> Catched True (inputUser, inputChannel, instruction)
+        Right instruction -> Catched True (inputSender, instruction)
         Left _            -> PassedOn
       _ -> PassedOn
-  , pluginHandler = \(user, channel, instruction) -> do
-      stateFile <- (</> "state") <$> case channel of
-        Nothing -> getUserState user
-        Just _  -> getGlobalState
+  , pluginHandler = \(sender, instruction) -> do
+      stateFile <- (</> "state") <$> case sender of
+        Left user    -> getUserState user
+        Right (_, _) -> getGlobalState
       exists <- liftIO $ doesFileExist stateFile
       initialState <- if exists then
         liftIO (decodeFileStrict stateFile) >>= \case
           Just result -> return result
           Nothing -> do
-            logErrorN $ "Failed to decode nix state at " <> pack stateFile
+            lift $ logMsg $ "Failed to decode nix state at " <> pack stateFile
             return $ NixState M.empty []
       else
         return $ NixState M.empty []
 
       (result, newState) <- runStateT (handle instruction) initialState
-      case channel of
-        Nothing   -> privMsg user result
-        Just chan -> chanMsg chan result
+      case sender of
+        Left user       -> privMsg user (pack result)
+        Right (chan, _) -> chanMsg chan (pack result)
       liftIO $ encodeFile stateFile newState
   }

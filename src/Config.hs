@@ -33,7 +33,7 @@ opts = info (parser <**> helper)
   <> header "nixbot - nix bot"
    )
 
-lowerFirst :: [Char] -> [Char]
+lowerFirst :: String -> String
 lowerFirst []       = []
 lowerFirst (c:rest) = toLower c : rest
 
@@ -49,15 +49,15 @@ customOptions = defaultOptions
 
 data PrConfig = PrConfig
   { configIgnoreStandaloneUnder :: Int
-  , configDefaultRepo           :: String
-  , configDefaultOwners         :: Map String String
-  , configFallbackOwner         :: String
+  , configDefaultRepo           :: Text
+  , configDefaultOwners         :: Map Text Text
+  , configFallbackOwner         :: Text
   } deriving (Show, Generic)
 
 instance FromJSON PrConfig where
   parseJSON = genericParseJSON customOptions
 
-data PluginConfig = PluginConfig
+newtype PluginConfig = PluginConfig
   { configPr :: PrConfig
   } deriving (Show, Generic)
 
@@ -69,7 +69,7 @@ data Config = Config
   , configPassword       :: Text
   , configStateDir       :: FilePath
   , configNixPath'       :: [String]
-  , configKarmaBlacklist :: [String]
+  , configKarmaBlacklist :: [Text]
   , configDebugMode      :: Bool
   , configPlugins        :: PluginConfig
   } deriving (Show, Generic)
