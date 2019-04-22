@@ -47,22 +47,23 @@ sendFrontend output = do
   lift $ atomically $ writeTMQueue queue output
 
 
-setup :: Env -> IO (A.Connection, A.Channel, TMVar ())
+setup :: Env -> IO (A.Connection, A.Channel, TMVar SomeException)
 setup env@Env { config, frontend } = do
   waiter <- newEmptyTMVarIO
 
   conn <- A.openConnection'' (amqpOptions config)
   logMsgEnv env "AMQP connection opened"
-  A.addConnectionClosedHandler conn True $ do
+  A.addConnectionClosedHandler conn True $
     logMsgEnv env "AMQP connection closed"
-    atomically $ putTMVar waiter ()
 
   chan <- A.openChannel conn
   atomically $ putTMVar (amqpChannel frontend) chan
   logMsgEnv env "AMQP channel opened"
   A.addChannelExceptionHandler chan $ \exc -> case fromException exc of
     Just (A.ConnectionClosedException A.Normal _) -> logMsgEnv env "AMQP channel closed"
-    _ -> logMsgEnv env $ "AMQP channel exception: " <> show' exc
+    _ -> do
+      logMsgEnv env $ "AMQP channel exception: " <> show' exc
+      atomically $ putTMVar waiter exc
 
   return (conn, chan, waiter)
 
@@ -83,7 +84,7 @@ exchangeOpts = A.newExchange
   , A.exchangeAutoDelete = False
   }
 
-action :: Env -> (Input -> App ()) -> (A.Connection, A.Channel, TMVar ()) -> IO ()
+action :: Env -> (Input -> App ()) -> (A.Connection, A.Channel, TMVar SomeException) -> IO a
 action env onInput (_, chan, waiter) = do
 
   (queue, _, _) <- A.declareQueue chan queueOpts
@@ -93,7 +94,8 @@ action env onInput (_, chan, waiter) = do
   _ <- A.consumeMsgs chan queue A.Ack onMsg
   logMsgEnv env "AMQP consumer started"
 
-  atomically $ takeTMVar waiter
+  exc <- atomically $ takeTMVar waiter
+  throwIO exc
   where
     onMsg :: (A.Message, A.Envelope) -> IO ()
     onMsg (msg, envelope) = flip runReaderT env $ do
@@ -124,19 +126,26 @@ decodeInput bytes = case eitherDecode' bytes of
 encodeOutput :: Output -> BS.ByteString
 encodeOutput = encode . shapeOutput
 
-tearDown :: (A.Connection, A.Channel, TMVar ()) -> IO ()
-tearDown (conn, _, _) = A.closeConnection conn
+tearDown :: Env -> (A.Connection, A.Channel, TMVar SomeException) -> IO ()
+tearDown env (conn, _, _) = do
+  logMsgEnv env "Teardown called, closing the connection"
+  A.closeConnection conn
 
 loop :: Env -> (Input -> App ()) -> IO ()
-loop env onInput = catch oneConnection $ \exc -> case fromException exc of
-  Just UserInterrupt ->
-    logMsgEnv env "User interrupt, stopping.."
-  _                  -> do
-    logMsgEnv env $ "Exception: " <> show' exc
-    logMsgEnv env "Restarting.."
-    loop env onInput
+loop env onInput = do
+  shouldRestart <- catch oneConnection handleException
+  when shouldRestart $ loop env onInput
   where
     oneConnection = bracket
       (setup env)
-      tearDown
+      (tearDown env)
       (action env onInput)
+
+    handleException exc = case fromException exc of
+      Just UserInterrupt -> do
+        logMsgEnv env "User interrupt, stopping.."
+        return False
+      _                  -> do
+        logMsgEnv env $ "Exception: " <> show' exc
+        logMsgEnv env "Restarting.."
+        return True
