@@ -24,6 +24,7 @@ import           Frontend.Types
 import           Log
 import qualified Network.AMQP                   as A
 import           System.Posix.Signals
+import           System.Timeout
 import           Types
 
 initFrontend :: IO Frontend
@@ -36,7 +37,7 @@ runFrontend onInput = do
 
   mainThread <- lift myThreadId
   _ <- lift $ installHandler sigTERM (Catch (throwTo mainThread UserInterrupt)) Nothing
-  lift $ loop env onInput
+  lift $ loop Nothing env onInput
   queue <- asks (outputQueue . frontend)
   lift $ atomically $ closeTMQueue queue
   lift $ wait sendThread
@@ -131,21 +132,55 @@ tearDown env (conn, _, _) = do
   logMsgEnv env "Teardown called, closing the connection"
   A.closeConnection conn
 
-loop :: Env -> (Input -> App ()) -> IO ()
-loop env onInput = do
+data FrontendException = Timeout deriving (Eq, Show)
+instance Exception FrontendException
+
+data ShouldRestart = NoRestart
+                   | RestartWithDelay
+                   | RestartInstantly
+                   deriving (Eq, Show)
+
+-- | Try to establish a connection and channel for this many microseconds
+connectionTimeout :: Int
+connectionTimeout = 5 * 1000 * 1000
+-- | When timed out, delay retry by this amount of microseconds initially
+minDelay :: Int
+minDelay = 100 * 1000
+-- | Maximum delay for exponential backoff in microseconds
+maxDelay :: Int
+maxDelay = 60 * 1000 * 1000
+
+loop :: Maybe Int -> Env -> (Input -> App ()) -> IO ()
+loop mdelay env onInput = do
   shouldRestart <- catch oneConnection handleException
-  when shouldRestart $ loop env onInput
+  logMsgEnv env $ "one connection exited, restart? " <> show' shouldRestart
+  case (shouldRestart, mdelay) of
+    (NoRestart, _) -> return ()
+    (RestartInstantly, _) -> loop Nothing env onInput
+    (RestartWithDelay, Nothing) -> loop (Just minDelay) env onInput
+    (RestartWithDelay, Just delay) -> do
+      threadDelay delay
+      let newDelay = min (delay * 2) maxDelay
+      loop (Just newDelay) env onInput
   where
+    setup' = do
+      result <- timeout connectionTimeout $ setup env
+      case result of
+        Nothing  -> throwIO Timeout
+        Just res -> return res
+
     oneConnection = bracket
-      (setup env)
+      setup'
       (tearDown env)
       (action env onInput)
 
-    handleException exc = case fromException exc of
-      Just UserInterrupt -> do
-        logMsgEnv env "User interrupt, stopping.."
-        return False
-      _                  -> do
-        logMsgEnv env $ "Exception: " <> show' exc
-        logMsgEnv env "Restarting.."
-        return True
+    handleException exc
+      | fromException exc == Just UserInterrupt = do
+          logMsgEnv env "User interrupt"
+          return NoRestart
+      | fromException exc == Just Timeout = do
+          logMsgEnv env "Timed out"
+          return RestartWithDelay
+    handleException exc = do
+      logMsgEnv env $ "Exception: " <> show' exc
+      return RestartInstantly
