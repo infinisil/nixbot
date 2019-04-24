@@ -9,7 +9,7 @@ let
   filteredConfig = filterAttrsRecursive (name: value: name != "_module") cfg.config;
   configFile = pkgs.writeText "nixbot-config.json" (builtins.toJSON filteredConfig);
 
-  nixbot = import ./default.nix {};
+  nixbot = import ./default.nix (optionalAttrs (! cfg.pinned) { inherit pkgs; });
 
   channels = [ "nixos-unstable" "nixos-18.09" "nixos-18.03" ];
 
@@ -20,6 +20,16 @@ in
   options.services.nixbot = {
 
     enable = mkEnableOption "Nixbot";
+
+    pinned = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Whether to use the pinned nixpkgs for nixbot. Enabling this guarantees
+        that there will be no build problems, but dependencies can't be
+        shared with the rest of the system.
+      '';
+    };
 
     config = mkOption {
       type = types.submodule (import ./nix/options.nix);

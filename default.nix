@@ -34,8 +34,8 @@ let
       "^LICENSE$"
     ]) {};
 
-    megaparsec = self.megaparsec_7_0_4;
-    versions = self.versions_3_5_0;
+    megaparsec = self.megaparsec_7_0_4 or super.megaparsec;
+    versions = self.versions_3_5_0 or super.megaparsec;
 
     hnix = import (pkgs.fetchgit {
       url = "https://github.com/haskell-nix/hnix";
