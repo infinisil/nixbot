@@ -8,6 +8,7 @@ module Log
   , show'
   ) where
 
+import           Control.Concurrent             (myThreadId)
 import           Control.Concurrent.Async
 import           Control.Concurrent.STM
 import           Control.Concurrent.STM.TMQueue
@@ -37,11 +38,13 @@ logger = do
 
 logMsg :: Text -> App ()
 logMsg msg = do
-  queue <- asks logQueue
-  lift $ atomically $ writeTMQueue queue msg
+  env <- ask
+  lift $ logMsgEnv env msg
 
 logMsgEnv :: Env -> Text -> IO ()
-logMsgEnv Env { logQueue } msg = atomically $ writeTMQueue logQueue msg
+logMsgEnv Env { logQueue } msg = do
+  thread <- myThreadId
+  atomically $ writeTMQueue logQueue $ "[" <> show' thread <> "] " <> msg
 
 show' :: Show a => a -> Text
 show' = Text.pack . show
