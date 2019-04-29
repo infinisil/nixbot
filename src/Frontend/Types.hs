@@ -64,7 +64,7 @@ inputChannel Input { inputSender = Right (chan, _) } = Just chan
 data Output = Output
   { outputReceiver :: Either User Channel
   , outputMessage  :: Message
-  }
+  } deriving Show
 
 
 shapeInput :: RawInput -> Input
