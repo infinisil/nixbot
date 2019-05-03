@@ -11,8 +11,6 @@ let
 
   nixbot = import ./default.nix (optionalAttrs (! cfg.pinned) { inherit pkgs; });
 
-  channels = [ "nixos-unstable" "nixos-18.09" "nixos-18.03" ];
-
 in
 
 {
@@ -28,6 +26,15 @@ in
         Whether to use the pinned nixpkgs for nixbot. Enabling this guarantees
         that there will be no build problems, but dependencies can't be
         shared with the rest of the system.
+      '';
+    };
+
+    channels = mkOption {
+      type = types.listOf types.str;
+      default = [ "nixpkgs-unstable" ];
+      description = ''
+        Channels which should be added to NIX_PATH, tracking
+        https://github.com/NixOS/nixpkgs-channels.
       '';
     };
 
@@ -56,7 +63,7 @@ in
           fileSystems."/".device = "/dev/sda1";
         }
       ''}"
-    ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") channels;
+    ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") cfg.channels;
 
     users.users.nixbot = {
       description = "User for nixbot";
@@ -108,7 +115,7 @@ in
       script = ''
         git -C master/repo worktree prune
         git -C master/repo fetch channels
-        ${flip (concatMapStringsSep "\n") channels (channel: ''
+        ${flip (concatMapStringsSep "\n") cfg.channels (channel: ''
           if [ -d ${channel}/repo ]; then
             old=$(git -C ${channel}/repo rev-parse @)
             new=$(git -C ${channel}/repo rev-parse @{u})
