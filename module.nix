@@ -124,7 +124,7 @@ in
               echo "Updated ${channel} from $old to $new"
             fi
           else
-            git -C master/repo branch -D ${channel}
+            git -C master/repo branch -D ${channel} || true
             git -C master/repo worktree add -B ${channel} $PWD/${channel}/repo remotes/channels/${channel}
             echo "Initialized ${channel} at $(git -C ${channel}/repo rev-parse @)"
           fi
