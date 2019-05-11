@@ -55,7 +55,7 @@ in
 
     services.nixbot.configFile = mkDefault configFile;
 
-    services.nixbot.config.nixPath' = [
+    services.nixbot.config.channelDefaults.nixrepl.nixPath = [
       "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
       "nixos-config=${pkgs.writeText "configuration.nix" ''
         {

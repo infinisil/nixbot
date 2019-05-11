@@ -101,25 +101,23 @@ developFilter = Plugin
   , pluginHandler = const (return ())
   }
 
-plugins :: MonadReader Env m => Either User (Channel, User) -> m [Plugin]
--- TODO: Add a better way to configure channels
-plugins (Right ("pijul", _)) = return
-  [ tellSnooper
-  , karmaPlugin
-  ]
-plugins _ = do
-  debug <- asks (configDebugMode . config)
-  prConfig <- asks (configPr . configPlugins . config)
+plugins :: (MonadIO m, MonadReader Env m) => Either User (Channel, User) -> m [Plugin]
+plugins sender = do
+  pluginConfig <- asks (pluginConfigForSender sender . config)
 
-  return $ [ developFilter | debug ]
-    ++
-    [ leakedPlugin
-    , unregPlugin
-    , tellSnooper
-    , commandsPlugin'
-    , nixreplPlugin
-    , karmaPlugin
-    , prPlugin prConfig
-    ]
+  debug <- asks (configDebugMode . config)
+
+  let selectedPlugins =
+        [ developFilter | debug ] ++
+        [ unregPlugin | enableUnreg pluginConfig ] ++
+        [ tellSnooper | enableCommands pluginConfig ] ++
+        [ leakedPlugin | enableLeaked pluginConfig ] ++
+        [ commandsPlugin' | enableCommands pluginConfig ] ++
+        [ nixreplPlugin | enableNixrepl pluginConfig ] ++
+        [ karmaPlugin | enableKarma pluginConfig ] ++
+        [ prPlugin (configPr pluginConfig) | enablePr pluginConfig ]
+
+  --liftIO $ putStrLn $ "For sender " ++ show sender ++ " using plugins " ++ show (map pluginName selectedPlugins)
+  return selectedPlugins
 
 

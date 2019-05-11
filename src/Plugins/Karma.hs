@@ -73,10 +73,12 @@ rateLimited channel user = do
   when tooMany $ chanMsg channel $ user <> ": You've been giving a bit too much karma lately!"
   return tooMany
 
-matchFilter :: [Text] -> App [Text]
+matchFilter :: [Text] -> PluginT App [Text]
 matchFilter matches = do
-  blacklist <- Set.fromList <$> asks (configKarmaBlacklist . config)
-  let matchSet = Set.fromList matches
+  sender <- getSender
+  pluginConfig <- lift $ asks (pluginConfigForSender sender . config)
+  let blacklist = Set.fromList $ configBlacklist $ configKarma pluginConfig
+      matchSet = Set.fromList matches
       filtered = matchSet `Set.difference` blacklist
   return $ Set.toList filtered
 
@@ -88,7 +90,7 @@ karmaPlugin = Plugin
         []      -> PassedOn
         matches -> Catched True (input, map Text.pack matches)
   , pluginHandler = \(Input { inputSender, inputMessage }, unfilteredMatches) -> do
-      matches <- lift $ matchFilter unfilteredMatches
+      matches <- matchFilter unfilteredMatches
       case inputSender of
         Left user -> privMsg user $ "As much as you love "
           <> Text.intercalate ", " matches <> ", you can't give them karma here!"

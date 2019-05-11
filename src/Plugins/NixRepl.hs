@@ -83,9 +83,11 @@ nixFile NixState { variables, scopes } lit = "let\n"
     ++ concatMap (\scope -> "\twith " ++ scope ++ ";\n") (reverse scopes)
     ++ "\t" ++ lit
 
-nixEval :: String -> EvalMode -> App (Either String String)
+nixEval :: String -> EvalMode -> PluginT App (Either String String)
 nixEval contents mode = do
-  nixPath <- asks (configNixPath' . config)
+  sender <- getSender
+  pluginConfig <- lift $ asks (pluginConfigForSender sender . config)
+  let nixPath = configNixPath $ configNixrepl pluginConfig
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
   res <- lift . liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
     { mode = mode
@@ -103,7 +105,7 @@ tryMod :: (NixState -> NixState) -> ReplApp (Maybe String)
 tryMod modi = do
   newState <- gets modi
   let contents = nixFile newState "null"
-  result <- lift . lift $ nixEval contents Parse
+  result <- lift $ nixEval contents Parse
   case result of
     Right _ -> do
       put newState
@@ -119,7 +121,7 @@ handle (Definition lit val) = do
 handle (Evaluation strict lit) = do
   st <- get
   let contents = nixFile st ("_show (\n" ++ lit ++ "\n)")
-  result <- lift . lift $ nixEval contents (if strict then Strict else Lazy)
+  result <- lift $ nixEval contents (if strict then Strict else Lazy)
   case result of
     Right value -> return value
     Left err    -> return err

@@ -1,37 +1,24 @@
-{ lib, ... }:
+{ lib, options, config, ... }:
 
 with lib;
 
-{
-  options = {
+let
 
-    password = mkOption {
-      type = types.str;
-      description = "Password";
-    };
+  # Takes a recursive set of options and returns all their values with a mkDefault
+  takeValuesAsDefault = opts: mapAttrs (name: value:
+    if isOption value
+    then mkDefault value.value
+    else takeValuesAsDefault value)
+    (filterAttrs (name: value: ! hasPrefix "_" name) opts);
 
-    user = mkOption {
-      type = types.str;
-      description = "Name";
-    };
+  channelOptions = {
+    pr = {
 
-    stateDir = mkOption {
-      type = types.path;
-      description = "State dir";
-      default = "/var/lib/nixbot/state";
-    };
-
-    nixPath' = mkOption {
-      type = types.listOf types.str;
-      description = "NIX_PATH";
-    };
-
-    karmaBlacklist = mkOption {
-      type = types.listOf types.str;
-      description = "Blacklisted karma receivers";
-    };
-
-    plugins.pr = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Whether to enable the PR plugin.";
+      };
 
       ignoreStandaloneUnder = mkOption {
         type = types.ints.unsigned;
@@ -78,8 +65,88 @@ with lib;
           this owner is used as a fallback if defaultOwners doesn't define one.
         '';
       };
-
     };
+
+    commands.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Whether to enable the command plugin.";
+    };
+
+    nixrepl = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Whether to enable the nixrepl plugin.";
+      };
+
+      nixPath = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "The NIX_PATH to use for nix evaluation.";
+      };
+    };
+
+    leaked.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Whether to enable the leaked plugin.";
+    };
+
+    karma = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Whether to enable the karma plugin.";
+      };
+
+      blacklist = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "Blacklisted karma receivers";
+      };
+    };
+
+    unreg.enable = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Whether to enable the unreg plugin.";
+    };
+  };
+
+in
+
+{
+  options = {
+
+    password = mkOption {
+      type = types.str;
+      description = "Password";
+    };
+
+    user = mkOption {
+      type = types.str;
+      description = "Name";
+    };
+
+    stateDir = mkOption {
+      type = types.path;
+      description = "State dir";
+      default = "/var/lib/nixbot/state";
+    };
+
+    channels = mkOption {
+      type = types.attrsOf (types.submodule [
+        { options = channelOptions; }
+        (takeValuesAsDefault options.channelDefaults)
+      ]);
+      default = {};
+      description = "Channel-specific plugin configuration.";
+    };
+
+    channelDefaults = channelOptions;
+
+    users = channelOptions;
 
     debugMode = mkOption {
       type = types.bool;

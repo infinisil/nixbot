@@ -6,4 +6,4 @@ with import <nixpkgs/lib>;
     modules = [ ./options.nix config ];
   };
 
-in filterAttrsRecursive (name: value: name != "_module") result.config
+in filterAttrsRecursive (name: value: ! hasPrefix "_" name) result.config

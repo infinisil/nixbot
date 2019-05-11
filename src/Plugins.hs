@@ -23,6 +23,7 @@ class Monad m => PluginMonad m where
   getChannelState :: Channel -> m FilePath
   getUserState :: User -> m FilePath
   getChannelUserState :: Channel -> User -> m FilePath
+  getSender :: m (Either User (Channel, User))
   getUser :: m User
   getChannel :: m (Maybe Channel)
 
@@ -71,6 +72,7 @@ instance MonadIO m => PluginMonad (PluginT m) where
     let dir = base </> "channel-user" </> Text.unpack channel </> Text.unpack user </> pluginName
     liftIO $ createDirectoryIfMissing True dir
     return dir
+  getSender = PluginT $ \(_, _, Input { inputSender }) -> return inputSender
   getUser = PluginT $ \(_, _, Input { inputSender }) -> case inputSender of
     Left user -> return user
     Right (_, user) -> return user
@@ -83,6 +85,7 @@ instance PluginMonad m => PluginMonad (ReaderT r m) where
   getChannelState channel = lift $ getChannelState channel
   getUserState user = lift $ getUserState user
   getChannelUserState channel user = lift $ getChannelUserState channel user
+  getSender = lift getSender
   getUser = lift getUser
   getChannel = lift getChannel
 
