@@ -13,9 +13,7 @@ message = "Hello! You've been sent to #nixos-unregistered due to the recent spam
 unregPlugin :: Plugin
 unregPlugin = Plugin
   { pluginName = "unreg"
-  , pluginCatcher = \Input { inputSender } -> case inputSender of
-      Right ("nixos-unregistered", user) -> Catched True user
-      _                                  -> PassedOn
+  , pluginCatcher = Catched True . inputUser
   , pluginHandler = \user ->
       reply $ user <> ": " <> message
   }
