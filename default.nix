@@ -20,19 +20,6 @@ let
           --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.gnutar pkgs.gzip ]}"
       '';
     });
-    nix-session = self.callCabal2nix "nix-session" (lib.sourceByRegex ./nix-session [
-      "^app.*$"
-      "^src.*$"
-      "^nix.*$"
-      "^.*\\.cabal$"
-      "^LICENSE$"
-    ]) {};
-
-    nix-session-types = self.callCabal2nix "nix-session-types" (lib.sourceByRegex ./nix-session-types [
-      "^src.*$"
-      "^.*\\.cabal$"
-      "^LICENSE$"
-    ]) {};
 
     megaparsec = self.megaparsec_7_0_4 or super.megaparsec;
     versions = self.versions_3_5_0 or super.megaparsec;
@@ -50,5 +37,4 @@ let
   });
 in hpkgs.nixbot // {
   inherit hpkgs pkgs;
-  nix-session = hlib.justStaticExecutables hpkgs.nix-session;
 }
