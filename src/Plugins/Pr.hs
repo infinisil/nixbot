@@ -37,7 +37,7 @@ fetchInfo Settings { defOwner, defRepo } (ParsedIssue parseType owner repo numbe
       state <- case (issuePullRequest issue, issueState issue) of
         (Just _, StateClosed) -> do
           lift $ logMsg "This issue is a PR and closed, fetching to see if it's merged"
-          pullResult <- liftIO $ executeRequest' $ pullRequestR owner' repo' number'
+          pullResult <- liftIO $ executeRequest' $ pullRequestR owner' repo' (issueNumber issue)
           return $ case pullResult of
             Right PullRequest { pullRequestMerged = True } -> "merged"
             _                                              -> showState
