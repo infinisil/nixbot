@@ -141,7 +141,7 @@ in
       description = "Nix bot";
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
-      requires = [ "nixbot-master-updater.service" "nixbot-channel-updater.service" ];
+      wants = [ "nixbot-master-updater.service" "nixbot-channel-updater.service" ];
       path = [ pkgs.nix-index ];
       unitConfig.StartLimitIntervalSec = 0;
       serviceConfig = {
