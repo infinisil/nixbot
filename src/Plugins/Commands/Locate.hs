@@ -53,7 +53,7 @@ locateParser = eof $> LocateHelp
   <|> LocateWithMode Generic <$> parseWord
 
 locateHandle :: Locate -> PluginT App ()
-locateHandle LocateHelp = reply "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended)"
+locateHandle LocateHelp = reply "Use ,locate <filename> to find packages containing such a file. Powered by nix-index (local installation recommended) https://github.com/bennofs/nix-index"
 locateHandle (LocateWithMode mode str) = do
   result <- doNixLocate mode str
   reply result
