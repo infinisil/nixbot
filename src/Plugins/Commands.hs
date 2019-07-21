@@ -12,6 +12,7 @@ import qualified Data.Text                  as Text
 import           Frontend.Types
 import           Plugins
 import           Plugins.Commands.Dynamic
+import           Plugins.Commands.Expand
 import           Plugins.Commands.Find
 import           Plugins.Commands.Locate
 import           Plugins.Commands.Shared
@@ -25,6 +26,7 @@ data Command = Find Find
              | Locate Locate
              | Dynamic Dynamic
              | Listing (Maybe Int)
+             | Expand ExpandCommand
              deriving (Show)
 
 parseCommand :: Parser Command
@@ -32,6 +34,7 @@ parseCommand = Listing <$> listingParser
   <|> word "find" *> (Find <$> findParser)
   <|> word "tell" *> (Tell <$> tellParser)
   <|> word "locate" *> (Locate <$> locateParser)
+  <|> word "expand" *> (Expand <$> expandParser)
   <|> Dynamic <$> dynamicParser
 
 handleCommand :: Command -> PluginT App ()
@@ -44,8 +47,9 @@ handleCommand (Dynamic dynamic) = do
     (Just _, _)                 -> dynamicHandle dynamic
     (Nothing, DynamicQuery _ _) -> dynamicHandle dynamic
     _                           -> reply "Not allowed in PMs"
+handleCommand (Expand expand) = expandHandle expand
 handleCommand (Listing listing)       = do
-  let special = ["find", "tell", "locate"]
+  let special = ["find", "tell", "locate", "expand"]
   answer <- listCommands special listing
   reply answer
 

@@ -96,6 +96,7 @@ developFilter = Plugin
   { pluginName = "develop-filter"
   , pluginCatcher = \Input { inputSender } -> case inputSender of
       Left "infinisil"     -> PassedOn
+      Left "gchristensen"  -> PassedOn
       Right ("bottest", _) -> PassedOn
       _                    -> Catched True ()
   , pluginHandler = const (return ())

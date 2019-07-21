@@ -27,6 +27,7 @@ executable nixbot
                        Frontend.AMQP
                        Plugins.Commands
                        Plugins.Karma
+                       Plugins.Commands.Expand
                        Plugins.Commands.Find
                        Plugins.Commands.Tell
                        Plugins.Commands.Locate
