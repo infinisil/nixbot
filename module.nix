@@ -11,6 +11,16 @@ let
 
   nixbot = import ./default.nix (optionalAttrs (! cfg.pinned) { inherit pkgs; });
 
+  defaultNixPath = [
+    "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
+    "nixos-config=${pkgs.writeText "configuration.nix" ''
+      {
+        boot.loader.grub.device = "nodev";
+        fileSystems."/".device = "/dev/sda1";
+      }
+    ''}"
+  ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") cfg.channels;
+
 in
 
 {
@@ -55,15 +65,8 @@ in
 
     services.nixbot.configFile = mkDefault configFile;
 
-    services.nixbot.config.channelDefaults.nixrepl.nixPath = [
-      "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
-      "nixos-config=${pkgs.writeText "configuration.nix" ''
-        {
-          boot.loader.grub.device = "nodev";
-          fileSystems."/".device = "/dev/sda1";
-        }
-      ''}"
-    ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") cfg.channels;
+    services.nixbot.config.users.nixrepl.nixPath = defaultNixPath;
+    services.nixbot.config.channelDefaults.nixrepl.nixPath = defaultNixPath;
 
     users.users.nixbot = {
       description = "User for nixbot";
