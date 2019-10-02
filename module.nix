@@ -90,6 +90,7 @@ in
       description = "Nix bot master updater";
       path = [ pkgs.git ];
       script = ''
+        git -C repo config gc.autoDetach false
         if [ -d repo ]; then
           git -C repo fetch
           old=$(git -C repo rev-parse @)
