@@ -75,7 +75,7 @@ parseIssues :: Settings -> String -> [ParsedIssue]
 parseIssues Settings { defOwner, defRepo } = map (extractIssue . map Text.pack)  . match prRegex
   where
     prRegex :: RegexMaker a CompOption ExecOption String => a
-    prRegex = makeRegex $ "(([^ ()]+)/)?([^ ()]+)?#([[:digit:]]+)"
+    prRegex = makeRegex $ "(([^ ()]+)/)?([^ ()]+)?#([[:digit:]]+)\\>"
       ++ "|" ++ "https://github.com/([^/ ]+)/([^/ ]+)/(issues|pull)/([[:digit:]]+)([^#/[:digit:]]|\\')"
 
     extractIssue :: [Text] -> ParsedIssue
