@@ -28,6 +28,7 @@ executable nixbot
                        Plugins.Commands
                        Plugins.Karma
                        Plugins.Commands.Expand
+                       Plugins.Commands.Guys
                        Plugins.Commands.Find
                        Plugins.Commands.Tell
                        Plugins.Commands.Locate
