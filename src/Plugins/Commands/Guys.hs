@@ -38,7 +38,7 @@ maxCount :: Int
 maxCount = 1
 
 text :: Channel -> Text
-text channel = "Hey! The Nix community is pretty big and diverse. Instead of \"guys\", maybe you could try using \"all\", \"folks\", \"everyone\" or \"y'all\"? This is an anomymous message sent regarding your recent use of \"guys\" in #" <> channel <> " :)"
+text channel = "Hello and welcome to #" <> channel <> " 👋. We'd appreciate when you address the whole channel using all inclusive words such as; everyone, all, folks, y'all, youz, or fellow humans. Thank you and enjoy your stay! <This is an anonymously sent, pre-written message. If you have any questions, feel free to ask in #nix-diversity>"
 
 helpText :: Text
 helpText = ",guys #<channel> <user>: Anonymously send a PM to a user saying \"" <> text "<channel>" <> "\""
