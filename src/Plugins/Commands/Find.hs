@@ -39,7 +39,7 @@ findParser = eof $> FindHelp
 
 getNixpkgs :: MonadIO m => Text -> m (Maybe Text)
 getNixpkgs s = do
-  c <- liftIO $ C.commit "NixOS" "nixpkgs" "HEAD"
+  c <- liftIO $ executeRequest' (C.commitR "NixOS" "nixpkgs" "HEAD")
   case c of
     Left err -> do
       liftIO $ print err
