@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Plugins.Commands.Guys where
+module Plugins.Commands.InclusiveLanguage where
 
 import           Control.Concurrent.STM
 import           Control.Monad.IO.Class
@@ -20,16 +20,16 @@ import           Text.Megaparsec
 import           Text.Megaparsec.Char
 import           Types
 
-data GuysCommand
-  = GuysHelp
-  | GuysRequest Channel User
+data InclusiveLanguageCommand
+  = InclusiveLanguageHelp
+  | InclusiveLanguageRequest Channel User
   deriving Show
 
-guysParser :: Parser GuysCommand
-guysParser = try (GuysRequest
+inclusiveLanguageParser :: Parser InclusiveLanguageCommand
+inclusiveLanguageParser = try (InclusiveLanguageRequest
                   <$> (char '#' *> fmap T.pack (someTill anySingle space1))
                   <*> (fmap T.pack (some (anySingleBut ' ')) <* eof))
-  <|> return GuysHelp
+  <|> return InclusiveLanguageHelp
 
 timeInterval :: NominalDiffTime
 timeInterval = 60 * 30
@@ -41,12 +41,12 @@ text :: Channel -> Text
 text channel = "Hello and welcome to #" <> channel <> " 👋. We'd appreciate when you address the whole channel using all inclusive words such as; everyone, all, folks, y'all, youz, or fellow humans. Thank you and enjoy your stay! <This is an anonymously sent, pre-written message. If you have any questions, feel free to ask in #nix-diversity>"
 
 helpText :: Text
-helpText = ",guys #<channel> <user>: Anonymously send a PM to a user saying \"" <> text "<channel>" <> "\""
+helpText = ",inclusive-language #<channel> <user>: Anonymously send a PM to a user saying \"" <> text "<channel>" <> "\""
 
 validateNonSpam :: Channel -> User -> PluginT App (Either Text ())
 validateNonSpam channel target = do
   now <- liftIO getCurrentTime
-  path <- (</> "guys-target") <$> getChannelUserState channel target
+  path <- (</> "inclusive-language-target") <$> getChannelUserState channel target
   exists <- liftIO (doesFileExist path)
   if exists
     then liftIO (eitherDecodeFileStrict path) >>= \case
@@ -74,7 +74,7 @@ validateUserExists target = do
 fulfilRequest :: User -> Channel -> User -> PluginT App ()
 fulfilRequest requester channel target = do
   now <- liftIO getCurrentTime
-  requesterPath <- (</> "guys-requester") <$> getChannelUserState channel requester
+  requesterPath <- (</> "inclusive-language-requester") <$> getChannelUserState channel requester
   exists <- liftIO (doesFileExist requesterPath)
   let req = (now, target)
   if exists
@@ -84,7 +84,7 @@ fulfilRequest requester channel target = do
         liftIO $ encodeFile requesterPath (req : reqs)
     else liftIO $ encodeFile requesterPath [req]
 
-  targetPath <- (</> "guys-target") <$> getChannelUserState channel target
+  targetPath <- (</> "inclusive-language-target") <$> getChannelUserState channel target
   exists' <- liftIO (doesFileExist targetPath)
   if exists'
     then liftIO (eitherDecodeFileStrict targetPath) >>= \case
@@ -97,15 +97,15 @@ fulfilRequest requester channel target = do
   privMsg requester "The user was informed"
 
 
-guysHandle :: GuysCommand -> PluginT App ()
-guysHandle cmd = do
+inclusiveLanguageHandle :: InclusiveLanguageCommand -> PluginT App ()
+inclusiveLanguageHandle cmd = do
   user <- getUser
   mchan <- getChannel
   case (mchan, cmd) of
-    (Just chan, GuysHelp) -> chanMsg chan $ "Can only be used in PMs: " <> helpText
-    (Nothing, GuysHelp) -> privMsg user helpText
-    (Just _, GuysRequest _ _) -> privMsg user "The ,guys command only works in PMs"
-    (Nothing, GuysRequest chan target) -> do
+    (Just chan, InclusiveLanguageHelp) -> chanMsg chan $ "Can only be used in PMs: " <> helpText
+    (Nothing, InclusiveLanguageHelp) -> privMsg user helpText
+    (Just _, InclusiveLanguageRequest _ _) -> privMsg user "The ,inclusive-language command only works in PMs"
+    (Nothing, InclusiveLanguageRequest chan target) -> do
       spam <- validateNonSpam chan target
       knownUser <- validateUserExists target
       case spam >> knownUser of
