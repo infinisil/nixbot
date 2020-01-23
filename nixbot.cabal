@@ -34,6 +34,7 @@ executable nixbot
                        Plugins.Commands.Locate
                        Plugins.Commands.Dynamic
                        Plugins.Commands.Shared
+                       Plugins.Commands.RandomPr
                        Plugins.Pr
                        Plugins.Leaked
                        Plugins.NixRepl
@@ -68,3 +69,6 @@ executable nixbot
                      , optparse-applicative
                      , typed-process
                      , unix
+                     , neat-interpolation
+                     , vector
+                     , random

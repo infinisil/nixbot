@@ -9,6 +9,7 @@ module Config ( getConfig
               , PluginConfig(..)
               , PrConfig(..)
               , enablePr
+              , RandomPrConfig(..)
               , CommandsConfig(..)
               , enableCommands
               , NixreplConfig(..)
@@ -77,8 +78,17 @@ instance FromJSON PrConfig where
 enablePr :: PluginConfig -> Bool
 enablePr PluginConfig { configPr = PrConfig { configEnable } } = configEnable
 
-newtype CommandsConfig = CommandsConfig
-  { configEnable :: Bool
+
+newtype RandomPrConfig = RandomPrConfig
+  { configToken  :: Text
+  } deriving (Show, Generic)
+
+instance FromJSON RandomPrConfig where
+  parseJSON = genericParseJSON customOptions
+
+data CommandsConfig = CommandsConfig
+  { configEnable   :: Bool
+  , configRandomPr :: RandomPrConfig
   } deriving (Show, Generic)
 
 instance FromJSON CommandsConfig where

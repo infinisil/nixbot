@@ -67,10 +67,18 @@ let
       };
     };
 
-    commands.enable = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Whether to enable the command plugin.";
+    commands = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Whether to enable the command plugin.";
+      };
+      randomPr.token = mkOption {
+        type = types.str;
+        description = ''
+          GitHub API token from https://help.github.com/en/github/authenticating-to-github/creating-a-personal-access-token-for-the-command-line
+        '';
+      };
     };
 
     nixrepl = {

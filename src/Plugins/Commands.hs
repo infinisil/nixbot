@@ -7,8 +7,8 @@
 module Plugins.Commands (commandsPlugin') where
 
 import           Control.Monad.IO.Class
-import           Data.Functor               (($>))
-import qualified Data.Text                  as Text
+import           Data.Functor                       (($>))
+import qualified Data.Text                          as Text
 import           Frontend.Types
 import           Plugins
 import           Plugins.Commands.Dynamic
@@ -16,10 +16,11 @@ import           Plugins.Commands.Expand
 import           Plugins.Commands.Find
 import           Plugins.Commands.InclusiveLanguage
 import           Plugins.Commands.Locate
+import           Plugins.Commands.RandomPr
 import           Plugins.Commands.Shared
 import           Plugins.Commands.Tell
 import           Text.Megaparsec
-import qualified Text.Megaparsec.Char.Lexer as L
+import qualified Text.Megaparsec.Char.Lexer         as L
 import           Types
 
 data Command = Find Find
@@ -29,6 +30,7 @@ data Command = Find Find
              | Listing (Maybe Int)
              | Expand ExpandCommand
              | InclusiveLanguage InclusiveLanguageCommand
+             | RandomPr
              deriving (Show)
 
 parseCommand :: Parser Command
@@ -38,6 +40,7 @@ parseCommand = Listing <$> listingParser
   <|> word "locate" *> (Locate <$> locateParser)
   <|> word "expand" *> (Expand <$> expandParser)
   <|> word "inclusive-language" *> (InclusiveLanguage <$> inclusiveLanguageParser)
+  <|> word "random-pr" *> pure RandomPr
   <|> Dynamic <$> dynamicParser
 
 handleCommand :: Command -> PluginT App ()
@@ -53,9 +56,10 @@ handleCommand (Dynamic dynamic) = do
 handleCommand (Expand expand) = expandHandle expand
 handleCommand (InclusiveLanguage expand) = inclusiveLanguageHandle expand
 handleCommand (Listing listing)       = do
-  let special = ["find", "tell", "locate", "expand", "inclusive-language"]
+  let special = ["find", "tell", "locate", "expand", "inclusive-language", "random-pr"]
   answer <- listCommands special listing
   reply answer
+handleCommand RandomPr = randomPrHandle
 
 listingParser :: Parser (Maybe Int)
 listingParser = eof $> Nothing
