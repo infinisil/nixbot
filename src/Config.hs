@@ -19,6 +19,8 @@ module Config ( getConfig
               , enableKarma
               , UnregConfig(..)
               , enableUnreg
+              , QuitConfig(..)
+              , enableQuit
               , pluginConfigForSender
               ) where
 
@@ -127,6 +129,16 @@ instance FromJSON UnregConfig where
 enableUnreg :: PluginConfig -> Bool
 enableUnreg PluginConfig { configUnreg = UnregConfig { configEnable } } = configEnable
 
+newtype QuitConfig = QuitConfig
+  { configEnable :: Bool
+  } deriving (Show, Generic)
+
+instance FromJSON QuitConfig where
+  parseJSON = genericParseJSON customOptions
+
+enableQuit :: PluginConfig -> Bool
+enableQuit PluginConfig { configQuit = QuitConfig { configEnable } } = configEnable
+
 data PluginConfig = PluginConfig
   { configPr       :: PrConfig
   , configCommands :: CommandsConfig
@@ -134,6 +146,7 @@ data PluginConfig = PluginConfig
   , configLeaked   :: LeakedConfig
   , configKarma    :: KarmaConfig
   , configUnreg    :: UnregConfig
+  , configQuit     :: QuitConfig
   } deriving (Show, Generic)
 
 instance FromJSON PluginConfig where
