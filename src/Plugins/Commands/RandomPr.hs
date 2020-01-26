@@ -82,7 +82,7 @@ openPrsParser now obj = do
           let ago = prettySeconds 1 . round . (`diffUTCTime` createdAt) $ now
           return $ Just $ url <> " (by " <> login <> ", " <> ago <> " ago, open): " <> title
         _ -> return Nothing
-    openPrText e = fail $ "Unexpected value: " <> show e
+    openPrText _ = return Nothing
 
 
 makeGraphQLRequest :: Manager -> BS.ByteString -> Text -> IO Object
