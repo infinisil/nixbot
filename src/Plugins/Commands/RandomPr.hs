@@ -58,7 +58,7 @@ openPrsQuery maxNum = do
   return $ "{ repository(name: \"nixpkgs\", owner: \"NixOS\") {" <> Text.concat (map genSub nums) <> "} }"
   where
     genSub :: Int -> Text
-    genSub n = "n" <> Text.pack (show n) <> ": issueOrPullRequest(number: " <> Text.pack (show n) <> ") { ... on PullRequest { url state author { login } createdAt title } }"
+    genSub n = "n" <> Text.pack (show n) <> ": issueOrPullRequest(number: " <> Text.pack (show n) <> ") { ... on PullRequest { url state author { login } createdAt title mergeable isDraft } }"
 
 openPrsParser :: UTCTime -> Object -> AT.Parser (Maybe Text)
 openPrsParser now obj = do
@@ -78,9 +78,15 @@ openPrsParser now obj = do
           login :: Text <- author .: "login"
           createdAt :: UTCTime <- obj' .: "createdAt"
           title :: Text <- obj' .: "title"
-
-          let ago = prettySeconds 1 . round . (`diffUTCTime` createdAt) $ now
-          return $ Just $ url <> " (by " <> login <> ", " <> ago <> " ago, open): " <> title
+          mergeable :: Text <- obj' .: "mergeable"
+          isDraft :: Bool <- obj' .: "isDraft"
+          let wipInTitle = "wip" `elem` Text.words (Text.toLower title)
+              isWIP = isDraft || wipInTitle
+              ago = prettySeconds 1 . round . (`diffUTCTime` createdAt) $ now
+          return $ case (mergeable, isWIP) of
+            ("CONFLICTING", _) -> Nothing
+            (_, True) -> Nothing
+            (_, False) -> Just $ "[development] " <> url <> " (by " <> login <> ", " <> ago <> " ago, open): " <> title
         _ -> return Nothing
     openPrText _ = return Nothing
 
