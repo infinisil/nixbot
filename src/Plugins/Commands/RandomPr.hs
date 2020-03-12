@@ -86,7 +86,7 @@ openPrsParser now obj = do
           return $ case (mergeable, isWIP) of
             ("CONFLICTING", _) -> Nothing
             (_, True) -> Nothing
-            (_, False) -> Just $ "[development] " <> url <> " (by " <> login <> ", " <> ago <> " ago, open): " <> title
+            (_, False) -> Just $ url <> " (by " <> login <> ", " <> ago <> " ago, open): " <> title
         _ -> return Nothing
     openPrText _ = return Nothing
 
