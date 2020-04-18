@@ -26,7 +26,7 @@ import           Types
 
 
 karmaRegex :: String
-karmaRegex = "([^[:space:]]+)\\+\\+|<3 ([^[:space:]]+)"
+karmaRegex = "([^[:space:]]+)\\+\\+|<3 ([^[:space:]]+)|✨ ([^[:space:]]+)"
 
 -- TODO: Use a single constructor with givenBy being a Maybe (or some iso of it)
 -- Needs to migrate the old data
