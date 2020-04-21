@@ -21,6 +21,7 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.List
 import           Data.Text                  (pack)
 import qualified Data.Text                  as Text
+import Data.Text.Encoding
 import           GHC.Generics
 import           System.Directory
 import           System.FilePath
@@ -89,7 +90,7 @@ nixEval contents mode = do
   pluginConfig <- lift $ asks (pluginConfigForSender sender . config)
   let nixPath = configNixPath $ configNixrepl pluginConfig
   let nixInstPath = "/run/current-system/sw/bin/nix-instantiate"
-  res <- lift . liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.pack contents)))
+  res <- lift . liftIO $ nixInstantiate nixInstPath (defNixEvalOptions (Left (BS.fromStrict (encodeUtf8 (Text.pack contents)))))
     { mode = mode
     , nixPath = nixPath
     , options = unsetNixOptions
@@ -99,7 +100,7 @@ nixEval contents mode = do
       , showTrace = Just True
       }
     }
-  return $ bimap (outputTransform . BS.unpack) (outputTransform . BS.unpack) res
+  return $ bimap (outputTransform . Text.unpack . decodeUtf8 . BS.toStrict) (outputTransform . Text.unpack . decodeUtf8 . BS.toStrict) res
 
 tryMod :: (NixState -> NixState) -> ReplApp (Maybe String)
 tryMod modi = do
