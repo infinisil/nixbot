@@ -7,7 +7,7 @@ let
   inherit (pkgs) lib;
   hlib = pkgs.haskell.lib;
 
-  hpkgs = pkgs.haskell.packages.ghc865.extend (self: super: {
+  hpkgs = pkgs.haskellPackages.extend (self: super: {
     nixbot = (self.callCabal2nix "nixbot" (lib.sourceByRegex ./. [
       "^src.*$"
       "^.*\\.cabal$"
