@@ -120,12 +120,6 @@ let
       default = false;
       description = "Whether to enable the unreg plugin.";
     };
-
-    quit.enable = mkOption {
-      type = types.bool;
-      default = false;
-      description = "Whether to enable the quit plugin.";
-    };
   };
 
 in

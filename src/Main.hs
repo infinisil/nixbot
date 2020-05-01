@@ -21,7 +21,6 @@ import           Plugins.Karma
 import           Plugins.Leaked
 import           Plugins.NixRepl
 import           Plugins.Pr
-import           Plugins.Quit
 import           Plugins.Unreg
 import           Types
 
@@ -117,7 +116,6 @@ plugins sender = do
         [ commandsPlugin' | enableCommands pluginConfig ] ++
         [ nixreplPlugin | enableNixrepl pluginConfig ] ++
         [ karmaPlugin | enableKarma pluginConfig ] ++
-        [ quitPlugin | enableQuit pluginConfig ] ++
         [ prPlugin (configPr pluginConfig) | enablePr pluginConfig ]
 
   --liftIO $ putStrLn $ "For sender " ++ show sender ++ " using plugins " ++ show (map pluginName selectedPlugins)

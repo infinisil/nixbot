@@ -39,7 +39,6 @@ executable nixbot
                        Plugins.Leaked
                        Plugins.NixRepl
                        Plugins.Unreg
-                       Plugins.Quit
                        Types
                        NixEval
                        IRC
