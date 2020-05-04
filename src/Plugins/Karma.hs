@@ -173,7 +173,13 @@ karmaPlugin = Plugin
                         }
                   let oldKarma = countKarma entries
                   triggerIncrease oldKarma channel receiver $ do
-                    oldEntries <- fromJust <$> liftIO (decodeFileStrict receiverFile)
+                    exists' <- liftIO $ doesFileExist receiverFile
+                    oldEntries <- if not exists' then return [] else
+                      liftIO (eitherDecodeFileStrict receiverFile) >>= \case
+                        Left err -> do
+                          liftIO $ putStrLn $ "Couldn't decode karma file: " ++ err
+                          return []
+                        Right entries' -> return entries'
                     let newEntries = entry : oldEntries
                     liftIO $ encodeFile receiverFile newEntries
   }
