@@ -11,15 +11,17 @@ let
 
   nixbot = import ./default.nix (optionalAttrs (! cfg.pinned) { inherit pkgs; });
 
+  dataDir = "/var/lib/nixbot";
+
   defaultNixPath = [
-    "nixpkgs=/var/lib/nixbot/nixpkgs/master/repo"
+    "nixpkgs=${dataDir}/nixpkgs/master/repo"
     "nixos-config=${pkgs.writeText "configuration.nix" ''
       {
         boot.loader.grub.device = "nodev";
         fileSystems."/".device = "/dev/sda1";
       }
     ''}"
-  ] ++ map (channel: "${channel}=/var/lib/nixbot/nixpkgs/${channel}/repo") cfg.channels;
+  ] ++ map (channel: "${channel}=${dataDir}/nixpkgs/${channel}/repo") cfg.channels;
 
 in
 
@@ -70,7 +72,7 @@ in
 
     users.users.nixbot = {
       description = "User for nixbot";
-      home = "/var/lib/nixbot";
+      home = "${dataDir}";
       createHome = true;
       group = "nixbot";
     };
@@ -108,7 +110,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         User = "nixbot";
-        WorkingDirectory = "/var/lib/nixbot/nixpkgs/master";
+        WorkingDirectory = "${dataDir}/nixpkgs/master";
       };
     };
 
@@ -137,7 +139,7 @@ in
       serviceConfig = {
         Type = "oneshot";
         User = "nixbot";
-        WorkingDirectory = "/var/lib/nixbot/nixpkgs";
+        WorkingDirectory = "${dataDir}/nixpkgs";
       };
     };
 
@@ -156,14 +158,14 @@ in
         RestartSec = 1;
         MemoryMax = "100M";
         CPUQuota = "50%";
-        WorkingDirectory = "/var/lib/nixbot/state/nixpkgs";
+        WorkingDirectory = "${dataDir}/state/nixpkgs";
       };
     };
 
     services.nginx = {
       enable = true;
       virtualHosts."nixbot.${config.networking.domain}" = {
-        root = "/var/lib/nixbot/state/new";
+        root = "${dataDir}/state/new";
         locations."/global/commands/".extraConfig = ''
           autoindex on;
           # https://stackoverflow.com/q/28166131/6605742
