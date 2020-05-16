@@ -104,13 +104,16 @@ increaseMessages =
             chanMsg chan ("Wait no, it got *increased* to " <> show' (n + 1))
     ))
   , (1, (const True, \_ chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to -2147483648")))
-  , (3, (const True, \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to " <> show' (n + 1) <> ".00000000000000004")))
+  , (4, ( \n -> floatIncrease (fromIntegral n) /= fromIntegral (n + 1)
+            , \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to " <> show' (floatIncrease (fromIntegral n)))))
   , (100, (\n -> length (show (n + 1)) > length (show n), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma now has " <> show' (length (show (n + 1))) <> " digits!")))
   , (2, ((>= 0), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to 0b" <> Text.pack (showIntAtBase 2 intToDigit (n + 1) ""))))
   , (2, ((>= 0), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to 0o" <> Text.pack (showOct (n + 1) ""))))
   , (2, ((>= 0), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to 0x" <> Text.pack (showHex (n + 1) ""))))
   , (1, ((>= 0), \_ chan nick increase -> increase *> chanMsg chan (nick <> " was put on Santa's \"nice\" list")))
-  ]
+  ] where
+  floatIncrease :: Double -> Double
+  floatIncrease n = n ** logBase n (n + 1)
 
 selectWithFrequency :: Double -> [(Double, a)] -> a
 selectWithFrequency randomValue items = selectedItem
