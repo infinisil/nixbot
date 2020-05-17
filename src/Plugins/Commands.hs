@@ -46,7 +46,7 @@ parseCommand = Listing <$> listingParser
   <|> word "expand" *> (Expand <$> expandParser)
   <|> word "inclusive-language" *> (InclusiveLanguage <$> inclusiveLanguageParser)
   <|> word "random-pr" *> pure RandomPr
-  <|> string "escape " *> (Escape . Text.pack <$> getInput)
+  <|> string "escape" *> (Escape . Text.pack <$> getInput)
   <|> Dynamic <$> dynamicParser
 
 handleCommand :: Command -> PluginT App ()
