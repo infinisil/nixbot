@@ -35,6 +35,7 @@ executable nixbot
                        Plugins.Commands.Dynamic
                        Plugins.Commands.Shared
                        Plugins.Commands.RandomPr
+                       Plugins.Commands.Escape
                        Plugins.Pr
                        Plugins.Leaked
                        Plugins.NixRepl

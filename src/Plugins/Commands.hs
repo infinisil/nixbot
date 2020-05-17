@@ -9,6 +9,7 @@ module Plugins.Commands (commandsPlugin') where
 import           Control.Monad.IO.Class
 import           Data.Functor                       (($>))
 import qualified Data.Text                          as Text
+import           Data.Text (Text)
 import           Frontend.Types
 import           Plugins
 import           Plugins.Commands.Dynamic
@@ -19,8 +20,11 @@ import           Plugins.Commands.Locate
 import           Plugins.Commands.RandomPr
 import           Plugins.Commands.Shared
 import           Plugins.Commands.Tell
+import           Plugins.Commands.Escape
 import           Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer         as L
+
+import           Text.Megaparsec.Char (string)
 import           Types
 
 data Command = Find Find
@@ -31,6 +35,7 @@ data Command = Find Find
              | Expand ExpandCommand
              | InclusiveLanguage InclusiveLanguageCommand
              | RandomPr
+             | Escape Text
              deriving (Show)
 
 parseCommand :: Parser Command
@@ -41,6 +46,7 @@ parseCommand = Listing <$> listingParser
   <|> word "expand" *> (Expand <$> expandParser)
   <|> word "inclusive-language" *> (InclusiveLanguage <$> inclusiveLanguageParser)
   <|> word "random-pr" *> pure RandomPr
+  <|> string "escape " *> (Escape . Text.pack <$> getInput)
   <|> Dynamic <$> dynamicParser
 
 handleCommand :: Command -> PluginT App ()
@@ -60,6 +66,7 @@ handleCommand (Listing listing)       = do
   answer <- listCommands special listing
   reply answer
 handleCommand RandomPr = randomPrHandle
+handleCommand (Escape txt) = escapeHandle txt
 
 listingParser :: Parser (Maybe Int)
 listingParser = eof $> Nothing
