@@ -137,7 +137,7 @@ karmaPlugin = Plugin
   , pluginCatcher = \input@Input { inputMessage } ->
       case filter (not . null) . concatMap tail $ (Text.unpack inputMessage =~ karmaRegex :: [[String]]) of
         []      -> PassedOn
-        matches -> Catched True (input, map Text.pack matches)
+        matches -> Catched False (input, map Text.pack matches)
   , pluginHandler = \(Input { inputSender, inputMessage }, unfilteredMatches) -> do
       matches <- matchFilter unfilteredMatches
       case inputSender of
