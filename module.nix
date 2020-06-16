@@ -157,6 +157,7 @@ in
         Restart = "always";
         RestartSec = 1;
         MemoryMax = "100M";
+        MemorySwapMax = "0";
         CPUQuota = "50%";
         WorkingDirectory = "${dataDir}/state/nixpkgs";
       };
