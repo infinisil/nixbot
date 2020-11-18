@@ -36,6 +36,7 @@ executable nixbot
                        Plugins.Commands.Shared
                        Plugins.Commands.RandomPr
                        Plugins.Commands.Escape
+                       Plugins.Commands.Permalink
                        Plugins.Pr
                        Plugins.Leaked
                        Plugins.NixRepl
@@ -72,3 +73,8 @@ executable nixbot
                      , neat-interpolation
                      , vector
                      , random
+                     , html-conduit
+                     , conduit
+                     , xml-types
+                     , http-conduit
+                     , xml-conduit

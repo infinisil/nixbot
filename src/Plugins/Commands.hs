@@ -21,6 +21,7 @@ import           Plugins.Commands.RandomPr
 import           Plugins.Commands.Shared
 import           Plugins.Commands.Tell
 import           Plugins.Commands.Escape
+import           Plugins.Commands.Permalink
 import           Text.Megaparsec
 import qualified Text.Megaparsec.Char.Lexer         as L
 
@@ -36,6 +37,7 @@ data Command = Find Find
              | InclusiveLanguage InclusiveLanguageCommand
              | RandomPr
              | Escape Text
+             | Permalink
              deriving (Show)
 
 parseCommand :: Parser Command
@@ -47,6 +49,7 @@ parseCommand = Listing <$> listingParser
   <|> word "inclusive-language" *> (InclusiveLanguage <$> inclusiveLanguageParser)
   <|> word "random-pr" *> pure RandomPr
   <|> string "escape" *> (Escape . Text.pack <$> getInput)
+  <|> word "permalink" *> pure Permalink
   <|> Dynamic <$> dynamicParser
 
 handleCommand :: Command -> PluginT App ()
@@ -67,6 +70,7 @@ handleCommand (Listing listing)       = do
   reply answer
 handleCommand RandomPr = randomPrHandle
 handleCommand (Escape txt) = escapeHandle txt
+handleCommand Permalink = permalinkHandle
 
 listingParser :: Parser (Maybe Int)
 listingParser = eof $> Nothing
