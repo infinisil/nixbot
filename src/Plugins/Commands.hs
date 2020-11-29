@@ -65,7 +65,7 @@ handleCommand (Dynamic dynamic) = do
 handleCommand (Expand expand) = expandHandle expand
 handleCommand (InclusiveLanguage expand) = inclusiveLanguageHandle expand
 handleCommand (Listing listing)       = do
-  let special = ["find", "tell", "locate", "expand", "inclusive-language", "random-pr"]
+  let special = ["find", "tell", "locate", "expand", "inclusive-language", "random-pr", "permalink"]
   answer <- listCommands special listing
   reply answer
 handleCommand RandomPr = randomPrHandle
