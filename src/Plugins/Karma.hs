@@ -111,8 +111,8 @@ increaseMessages =
   , (2, ((>= 0), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to 0o" <> Text.pack (showOct (n + 1) ""))))
   , (2, ((>= 0), \n chan nick increase -> increase *> chanMsg chan (nick <> "'s karma got increased to 0x" <> Text.pack (showHex (n + 1) ""))))
   , (1, ((>= 0), \_ chan nick increase -> increase *> chanMsg chan (nick <> " was put on Santa's \"nice\" list")))
-  , (10000000, ((== 420), \_ chan nick increase -> increase *> chanMsg chan "( *∀*)y─┛   420 blaze it" *> chanMsg chan (nick <> "'s karma ^^")))
-  , (10000000, ((== 404), \_ chan nick increase -> increase *> chanMsg chan "404 Karma not found"))
+  , (10000000, ((== 419), \_ chan nick increase -> increase *> chanMsg chan "( *∀*)y─┛   420 blaze it" *> chanMsg chan (nick <> "'s karma ^^")))
+  , (10000000, ((== 403), \_ chan nick increase -> increase *> chanMsg chan "404 Karma not found"))
   ] where
   floatIncrease :: Double -> Double
   floatIncrease n = n ** logBase n (n + 1)
