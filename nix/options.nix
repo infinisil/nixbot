@@ -127,6 +127,16 @@ in
 {
   options = {
 
+    host = mkOption {
+      type = types.str;
+      description = "AMQP host";
+    };
+
+    port = mkOption {
+      type = types.port;
+      description = "AMQP host port";
+    };
+
     password = mkOption {
       type = types.str;
       description = "Password";

@@ -151,7 +151,9 @@ instance FromJSON PluginConfig where
 
 
 data Config = Config
-  { configUser            :: Text
+  { configHost            :: String
+  , configPort            :: Int
+  , configUser            :: Text
   , configPassword        :: Text
   , configStateDir        :: FilePath
   , configDebugMode       :: Bool
@@ -170,10 +172,10 @@ pluginConfigForSender (Right (chan, _)) = pluginConfigForChannel chan
           Map.findWithDefault configChannelDefaults channel configChannels
 
 amqpOptions :: Config -> ConnectionOpts
-amqpOptions Config { configUser, configPassword } = defaultConnectionOpts
+amqpOptions Config { configHost, configPort, configUser, configPassword } = defaultConnectionOpts
   { coVHost = "ircbot"
   , coTLSSettings = Just TLSTrusted
-  , coServers = [("events.nix.gsc.io", 5671)]
+  , coServers = [(configHost, fromIntegral configPort)]
   , coAuth = [ amqplain configUser configPassword ]
   }
 
